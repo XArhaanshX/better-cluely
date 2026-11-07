@@ -28,17 +28,20 @@ CONFIG_FILE = CONFIG_DIR / "config.toml"
 
 DEFAULT_STT_MODEL = DATA_DIR / "models" / "sherpa-onnx-nemotron-speech-streaming-en-0.6b-160ms-int8-2026-04-25"
 
-# Model presets the UI can switch between. "smart" is the default.
+# Model presets the UI can switch between. Through Claude Code, Haiku answers
+# in ~0.85 s and Opus in ~2.1 s (measured, bench/cc_latency.py), so the
+# Claude Code backend defaults to "fast". The API backend defaults to "smart".
 CLAUDE_CODE_MODELS = {"smart": "opus", "fast": "haiku"}
 API_MODELS = {"smart": "claude-opus-5-5", "fast": "claude-haiku-5-5"}
+DEFAULT_PRESET = {"claude-code": "fast", "api": "smart"}
 
 
 @dataclass
 class Config:
     # "claude-code" uses the logged-in `claude` CLI; "api" uses the Anthropic API.
     backend: str = "claude-code"
-    # "smart" or "fast"; see the preset tables above. An explicit model wins.
-    preset: str = "smart"
+    # "smart" or "fast"; empty picks the backend's default. An explicit model wins.
+    preset: str = ""
     model: str = ""
     # API backend only. Empty means the SDK's normal credential lookup
     # (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or an `ant auth login` profile).
@@ -70,7 +73,10 @@ class Config:
         if self.model:
             return self.model
         table = CLAUDE_CODE_MODELS if self.backend == "claude-code" else API_MODELS
-        return table.get(self.preset, table["smart"])
+        return table.get(self.resolved_preset(), table["smart"])
+
+    def resolved_preset(self) -> str:
+        return self.preset or DEFAULT_PRESET.get(self.backend, "smart")
 
     def api_key(self) -> str | None:
         if not self.api_key_file:
@@ -96,6 +102,7 @@ class Config:
         d = dataclasses.asdict(self)
         d.pop("extra", None)
         d["resolved_model"] = self.resolved_model()
+        d["resolved_preset"] = self.resolved_preset()
         return d
 
 
