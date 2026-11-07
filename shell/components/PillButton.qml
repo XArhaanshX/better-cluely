@@ -18,6 +18,11 @@ Item {
 
     implicitWidth: row.implicitWidth + 18
     implicitHeight: 32
+    // Hover hints slide open instead of popping in.
+    clip: true
+    Behavior on implicitWidth {
+        NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+    }
 
     Rectangle {
         anchors.fill: parent

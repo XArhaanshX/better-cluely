@@ -15,6 +15,9 @@ Singleton {
     property bool cardOpen: false
     property bool typing: false
     property bool captionsOpen: true
+    // True while the bar is being dragged: position follows the pointer
+    // directly instead of easing.
+    property bool dragging: false
 
     readonly property int moveStep: 48
     property alias offsetX: saved.offsetX

@@ -9,6 +9,11 @@ Rectangle {
     signal typeRequested
 
     implicitWidth: row.implicitWidth + 16
+    // The bar grows and shrinks smoothly when its contents change
+    // (Listen -> "Recording 00:03", hover hints).
+    Behavior on implicitWidth {
+        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+    }
     implicitHeight: 46
     radius: height / 2
     color: Theme.glass
@@ -39,7 +44,10 @@ Rectangle {
         onPressed: m => {
             pressX = m.x;
             pressY = m.y;
+            Ui.dragging = true;
         }
+        onReleased: Ui.dragging = false
+        onCanceled: Ui.dragging = false
         onPositionChanged: m => {
             if (pressed)
                 Ui.drag(m.x - pressX, m.y - pressY);
