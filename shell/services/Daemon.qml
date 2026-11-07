@@ -33,7 +33,7 @@ Singleton {
 
     // {source, text, t}
     property ListModel lines: ListModel {}
-    // {id, kind, title, auto, text, done, cancelled, error, first_ms, total_ms, capture_ms, waiting}
+    // {id, kind, title, auto, text, done, cancelled, error, first_ms, total_ms, capture_ms, viewed, waiting, path}
     property ListModel answers: ListModel {}
     property string currentId: ""
     readonly property int currentIndex: {
@@ -116,7 +116,9 @@ Singleton {
             first_ms: a.first_ms ?? -1,
             total_ms: a.total_ms ?? -1,
             capture_ms: a.capture_ms ?? -1,
-            waiting: a.screenshot ?? false
+            viewed: a.screenshot ?? false,
+            waiting: (a.screenshot ?? false) && !(a.done ?? false),
+            path: a.path ?? ""
         };
     }
 
@@ -199,6 +201,7 @@ Singleton {
                 answers.setProperty(i, "error", ev.error ?? "");
                 answers.setProperty(i, "first_ms", ev.first_ms ?? -1);
                 answers.setProperty(i, "total_ms", ev.total_ms ?? -1);
+                answers.setProperty(i, "path", ev.path ?? "");
                 break;
             }
         case "answer.focus":
