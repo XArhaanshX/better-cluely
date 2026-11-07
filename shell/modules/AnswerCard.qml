@@ -15,7 +15,8 @@ Rectangle {
             return null;
         const a = Daemon.answers.get(i);
         return a ? { id: a.id, kind: a.kind, title: a.title, auto: a.auto, text: a.text, done: a.done,
-            cancelled: a.cancelled, error: a.error, first_ms: a.first_ms, waiting: a.waiting } : null;
+            cancelled: a.cancelled, error: a.error, first_ms: a.first_ms, waiting: a.waiting,
+            viewed: a.viewed, path: a.path } : null;
     }
     readonly property bool thinking: answer !== null && !answer.done && answer.text.length === 0
 
@@ -93,6 +94,24 @@ Rectangle {
                         font.pixelSize: 10
                     }
                 }
+                Row {
+                    visible: (root.answer?.viewed ?? false) && !(root.answer?.waiting ?? false)
+                    spacing: 3
+                    anchors.verticalCenter: parent.verticalCenter
+                    Icon {
+                        name: "visibility"
+                        size: 13
+                        color: Theme.faint
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Text {
+                        text: "Viewed screen"
+                        color: Theme.faint
+                        font.family: Theme.fontUi
+                        font.pixelSize: 11
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
                 Text {
                     visible: (root.answer?.first_ms ?? -1) > 0
                     text: ((root.answer?.first_ms ?? 0) / 1000).toFixed(2) + " s"
@@ -127,6 +146,15 @@ Rectangle {
                     iconColor: Daemon.currentIndex < Daemon.answers.count - 1 ? Theme.muted : Theme.line
                     implicitHeight: 24
                     onClicked: Daemon.step(1)
+                }
+                PillButton {
+                    visible: (root.answer?.path ?? "") !== ""
+                    icon: "open_in_new"
+                    label: "Open notes"
+                    labelColor: Theme.muted
+                    iconColor: Theme.muted
+                    implicitHeight: 24
+                    onClicked: Quickshell.execDetached(["xdg-open", root.answer.path])
                 }
                 PillButton {
                     icon: copied.running ? "check" : "content_copy"
@@ -230,17 +258,24 @@ Rectangle {
             spacing: 6
             Repeater {
                 model: [
+                    { key: "assist", icon: "bolt" },
                     { key: "say", icon: "record_voice_over" },
                     { key: "followup", icon: "help" },
                     { key: "recap", icon: "summarize" },
                     { key: "factcheck", icon: "fact_check" },
-                    { key: "explain", icon: "lightbulb" }
+                    { key: "explain", icon: "lightbulb" },
+                    { key: "notes", icon: "description" }
                 ]
                 Chip {
                     required property var modelData
                     label: Daemon.actions[modelData.key] ?? modelData.key
                     icon: modelData.icon
-                    onClicked: Daemon.ask(modelData.key, root.monitor)
+                    onClicked: {
+                        if (modelData.key === "assist")
+                            Actions.assist(root.monitor);
+                        else
+                            Daemon.ask(modelData.key, root.monitor);
+                    }
                 }
             }
         }
@@ -270,7 +305,7 @@ Rectangle {
                 clip: true
                 Text {
                     visible: input.text.length === 0
-                    text: "Ask about your screen or the conversation"
+                    text: "Ask about your screen or conversation, or ❖ Alt ↵ for Assist"
                     color: Theme.faint
                     font: input.font
                     anchors.verticalCenter: parent.verticalCenter
