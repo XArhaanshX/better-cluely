@@ -54,3 +54,41 @@ def test_every_mode_has_a_prompt():
         assert system_prompt(mode).startswith("You are wisp")
     assert system_prompt("nope") == system_prompt("general")
     assert {"assist", "say", "followup", "recap", "factcheck"} <= set(ACTIONS)
+
+
+# Interview and meeting phrasings beyond direct "wh-" questions.
+@pytest.mark.parametrize("text", [
+    "I'd like to know how you approached the migration",
+    "I'm curious about your experience with Kubernetes",
+    "Give me an example of a time you disagreed with your manager",
+    "Describe a project you are really proud of",
+    "Talk about a time when a release went wrong",
+    "Do you have any questions for us",
+    "Is there anything you would change about the design",
+    "Have you worked with Kafka before",
+    "And lastly can you explain the difference between a process and a thread",
+    "What would you say is your biggest weakness",
+    "How many users does the system handle today",
+    "Any questions before we wrap up today",
+    "So what are your thoughts on microservices",
+    "Are there any blockers for this week",
+    "Can you do it in linear time? Take your time.",
+])
+def test_more_questions(text):
+    assert looks_like_question(text)
+
+
+# Statements that start like questions.
+@pytest.mark.parametrize("text", [
+    "What we did was move everything to Postgres",
+    "So what I mean is the cache was stale",
+    "When I was at Google we used Spanner for this",
+    "How we handled it was by sharding the table",
+    "Would love to hear back from you soon",
+    "Can't wait to get started on the project",
+    "Should be done by Friday at the latest",
+    "Where we ended up was a hybrid approach",
+    "Will is joining us from the platform team today",
+])
+def test_more_statements(text):
+    assert not looks_like_question(text)
