@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Local data and models never go in the repo
+models/
+*.onnx
+*.tar.bz2
+sessions/
+*.wav
+
+# Secrets
+config.local.toml
+.env
