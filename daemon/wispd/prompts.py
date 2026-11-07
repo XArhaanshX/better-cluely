@@ -106,17 +106,45 @@ def context_block(notes: str, lines: list[Line]) -> str:
     return "\n\n".join(parts)
 
 
-_QUESTION_START = re.compile(
-    r"^(so,?\s+|and\s+|okay,?\s+|ok,?\s+|now,?\s+|great,?\s+|alright,?\s+)*"
-    r"(what|why|how|when|where|who|whom|whose|which|"
-    r"can|could|would|will|should|shall|do|does|did|is|are|was|were|have|has|had|may|might|"
-    r"tell me|talk me|walk me|explain|describe|give me|share|help me|"
-    r"what's|how's|where's|who's|isn't|aren't|don't|doesn't|didn't|wouldn't|couldn't|can't)\b",
-    re.IGNORECASE)
-_ASK_INSIDE = re.compile(
-    r"\b(tell me about|walk me through|can you|could you|would you|do you|have you|are you|"
-    r"what is|what are|what's|how do|how would|how did|why did|why do|explain)\b",
-    re.IGNORECASE)
+# Question detection works on English word order. A question puts the verb
+# before the subject ("what did you...", "can you..."); a statement keeps
+# the subject first even when it opens with a question word ("what we did
+# was...", "when I was at Google..."). Interviewers also ask without a
+# question form at all ("give me an example...", "I'm curious about..."),
+# so those phrasings are listed explicitly.
+
+_FILLERS = {"so", "and", "but", "okay", "ok", "now", "great", "alright", "right", "well",
+            "um", "uh", "cool", "yeah", "perfect", "awesome", "nice", "lastly", "finally",
+            "also", "then", "next"}
+_WH = {"what", "why", "how", "when", "where", "who", "whom", "whose", "which",
+       "what's", "how's", "where's", "who's", "why's", "when's"}
+_AUX = {"can", "could", "would", "will", "should", "shall", "do", "does", "did",
+        "is", "are", "was", "were", "have", "has", "had", "may", "might", "must",
+        "isn't", "aren't", "don't", "doesn't", "didn't", "won't", "wouldn't",
+        "couldn't", "shouldn't", "haven't", "hasn't", "wasn't", "weren't"}
+# Words that can follow a fronted verb in a real question ("can YOU", "is THERE").
+_SUBJECTS = {"i", "you", "we", "they", "he", "she", "it", "there", "this", "that",
+             "these", "those", "the", "a", "an", "your", "my", "our", "their", "his",
+             "her", "its", "anyone", "anybody", "someone", "somebody", "everyone",
+             "any", "one", "y'all"}
+# Subject pronouns straight after a question word mark a statement.
+_PRONOUNS = {"i", "we", "they", "he", "she", "you", "it", "i'm", "we're", "they're", "you're"}
+_INDIRECT = re.compile(
+    r"\b("
+    r"i'?d (?:like|love|want) to (?:know|hear|understand)|i would (?:like|love) to (?:know|hear)|"
+    r"i'?m (?:curious|wondering)|i was wondering|i wonder (?:if|whether|how|what|why)|"
+    r"tell (?:me|us) (?:about|how|why|what|more|a bit|a little)|"
+    r"talk (?:me |us )?(?:about|through)|walk (?:me|us) through|"
+    r"give (?:me|us) (?:an? |some )?(?:example|examples|sense|overview|rundown)|"
+    r"describe (?:a|an|the|your|how|what|one)|explain (?:how|why|what|the|your|a)|"
+    r"any (?:questions|thoughts|ideas|concerns|blockers)|thoughts on|"
+    r"how about|what about|share (?:an?|your|some) (?:example|experience|thoughts)"
+    r")\b")
+_INVERTED = re.compile(r"\b(?:can|could|would|will|do|did|have|are|were|should|is)\s+(?:you|we|they)\b")
+
+
+def _words(sentence: str) -> list[str]:
+    return [w.strip(",;:\"'()").lower() for w in sentence.split() if w.strip(",;:\"'()")]
 
 
 def looks_like_question(text: str) -> bool:
@@ -124,7 +152,22 @@ def looks_like_question(text: str) -> bool:
     t = text.strip()
     if len(t.split()) < 4:
         return False
-    if t.endswith("?"):
+    sentences = [x for x in re.split(r"(?<=[.!?])\s+", t) if x]
+    # The model writes "?" when it hears one; "Can you...? Take your time."
+    # still asked something.
+    if any(x.rstrip().endswith("?") for x in sentences[-2:]):
         return True
-    last = re.split(r"(?<=[.!?])\s+", t)[-1]
-    return bool(_QUESTION_START.match(last) or _ASK_INSIDE.search(last))
+    words = _words(sentences[-1])
+    while words and words[0] in _FILLERS:
+        words = words[1:]
+    if len(words) < 2:
+        return False
+    line = " ".join(words)
+    if _INDIRECT.search(line):
+        return True
+    first, second = words[0], words[1]
+    if first in _WH:
+        return second not in _PRONOUNS
+    if first in _AUX:
+        return second in _SUBJECTS
+    return bool(_INVERTED.search(line))
