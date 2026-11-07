@@ -72,3 +72,66 @@ class AudioCapture:
                 await asyncio.wait_for(proc.wait(), 2)
             except TimeoutError:
                 proc.kill()
+
+
+async def _pactl(*args: str) -> str:
+    proc = await asyncio.create_subprocess_exec(
+        "pactl", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    out, _ = await proc.communicate()
+    return out.decode().strip()
+
+
+async def default_devices() -> tuple[str, str]:
+    """(default sink, default source) names."""
+    sink, source = await asyncio.gather(_pactl("get-default-sink"), _pactl("get-default-source"))
+    return sink, source
+
+
+def echo_risk(sink: str) -> bool:
+    """True when the output is loudspeakers the mic can hear.
+
+    Headphones, headsets and Bluetooth audio don't leak into the mic.
+    Laptop speakers and HDMI monitors do.
+    """
+    s = sink.lower()
+    return not ("headphone" in s or "headset" in s or s.startswith("bluez_output"))
+
+
+class DeviceWatcher:
+    """Calls `on_change(sink, source)` when the default sink or source changes.
+
+    Follows `pactl subscribe` and re-reads the defaults on server events, so
+    plugging in or disconnecting headphones mid-call moves the capture to
+    the new device instead of listening to a dead one.
+    """
+
+    def __init__(self, on_change):
+        self._on_change = on_change
+        self._proc: asyncio.subprocess.Process | None = None
+        self._task: asyncio.Task | None = None
+        self.sink = ""
+        self.source = ""
+
+    async def start(self) -> None:
+        self.sink, self.source = await default_devices()
+        self._proc = await asyncio.create_subprocess_exec(
+            "pactl", "subscribe", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        assert self._proc and self._proc.stdout
+        while line := await self._proc.stdout.readline():
+            if b"on server" not in line:
+                continue
+            sink, source = await default_devices()
+            if (sink, source) != (self.sink, self.source):
+                old = (self.sink, self.source)
+                self.sink, self.source = sink, source
+                log.info("default devices changed: %s -> %s", old, (sink, source))
+                await self._on_change(sink, source, old)
+
+    async def stop(self) -> None:
+        if self._task:
+            self._task.cancel()
+        if self._proc and self._proc.returncode is None:
+            self._proc.terminate()
