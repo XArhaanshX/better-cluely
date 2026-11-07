@@ -12,15 +12,32 @@ Singleton {
     // without it, so the screenshot shows what is underneath.
     readonly property int hideFrames: 40
     property string pendingMonitor: ""
+    property string pendingAction: "assist"
+    property string pendingText: ""
 
     function assist(monitor) {
+        run("assist", "", monitor);
+    }
+
+    // Every request that reads the screen goes through here: chips, typed
+    // questions and Assist alike, so the overlay is never in its own
+    // screenshot.
+    function run(action, text, monitor) {
         Ui.shown = true;
         Ui.cardOpen = true;
         Ui.typing = false;
+        root.pendingAction = action || "assist";
+        root.pendingText = text || "";
         root.pendingMonitor = monitor || (Hyprland.focusedMonitor?.name ?? "");
         Ui.capturing = true;
         captureDelay.restart();
         failsafe.restart();
+    }
+
+    // Requests that don't look at the screen (meeting notes) skip the hide.
+    function runBlind(action) {
+        Ui.cardOpen = true;
+        Daemon.send({ cmd: "ask", action: action, screenshot: false });
     }
 
     function type() {
@@ -48,7 +65,10 @@ Singleton {
         id: captureDelay
         interval: root.hideFrames
         onTriggered: {
-            if (!Daemon.ask("assist", root.pendingMonitor))
+            const sent = root.pendingText !== ""
+                ? Daemon.askText(root.pendingText, root.pendingMonitor)
+                : Daemon.ask(root.pendingAction, root.pendingMonitor);
+            if (!sent)
                 Ui.capturing = false;
         }
     }

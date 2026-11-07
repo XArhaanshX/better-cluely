@@ -271,10 +271,10 @@ Rectangle {
                     label: Daemon.actions[modelData.key] ?? modelData.key
                     icon: modelData.icon
                     onClicked: {
-                        if (modelData.key === "assist")
-                            Actions.assist(root.monitor);
+                        if (modelData.key === "notes")
+                            Actions.runBlind("notes");
                         else
-                            Daemon.ask(modelData.key, root.monitor);
+                            Actions.run(modelData.key, "", root.monitor);
                     }
                 }
             }
@@ -312,10 +312,10 @@ Rectangle {
                 }
                 Keys.onReturnPressed: {
                     const q = text.trim();
-                    if (q.length > 0)
-                        Daemon.askText(q, root.monitor);
                     text = "";
                     Ui.typing = false;
+                    if (q.length > 0)
+                        Actions.run("", q, root.monitor);
                 }
                 Keys.onEscapePressed: {
                     text = "";
