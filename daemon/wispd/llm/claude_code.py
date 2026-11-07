@@ -32,6 +32,7 @@ class ClaudeCodeBackend:
 
     def __init__(self, cfg: Config):
         self.model = cfg.resolved_model()
+        self.effort = cfg.effort
         self.pool_size = max(1, cfg.pool_size)
         self._system = ""
         self._pool: list[asyncio.subprocess.Process] = []
@@ -39,7 +40,7 @@ class ClaudeCodeBackend:
         self._closed = False
 
     def describe(self) -> dict:
-        return {"backend": self.name, "model": self.model, "warm": len(self._pool)}
+        return {"backend": self.name, "model": self.model, "effort": self.effort, "warm": len(self._pool)}
 
     async def start(self) -> None:
         WORK_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,6 +54,9 @@ class ClaudeCodeBackend:
             "--input-format", "stream-json", "--output-format", "stream-json",
             "--include-partial-messages", "--verbose",
             "--model", self.model,
+            # Default effort lets the model think before open-ended prompts
+            # like Assist: 3.8 s to first token instead of ~1.3 s.
+            "--effort", self.effort,
             "--tools", "",
             "--strict-mcp-config",
             "--setting-sources", "",
