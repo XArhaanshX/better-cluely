@@ -1,0 +1,40 @@
+# wisp settings. Copy to ~/.config/wisp/config.toml; every key is optional.
+# The overlay's mode, Fast/Smart and auto-answer toggles are saved separately
+# (~/.local/share/wisp/state.json) and win over this file.
+
+# "claude-code" answers through your logged-in `claude` CLI.
+# "api" uses the Anthropic API with your own key.
+backend = "claude-code"
+
+# "fast" (Haiku) or "smart" (Opus). Empty: fast for claude-code, smart for api.
+preset = ""
+# Or name a model outright, e.g. "sonnet" (claude-code) or "claude-sonnet-5-5" (api).
+model = ""
+effort = "low"
+
+# API backend: a file holding the key. Empty uses ANTHROPIC_API_KEY or an
+# `ant auth login` profile.
+api_key_file = ""
+
+# Claude Code backend: idle processes kept ready (each ~200 MB of RAM).
+pool_size = 2
+
+# Speech recognition
+stt_threads = 2
+capture_mic = true
+capture_system = true
+mic_gate = 0.006
+
+# Answer questions from the other side as soon as they finish asking.
+auto_answer = true
+# Write meeting notes when you stop listening.
+auto_notes = true
+notes_dir = ""        # default ~/Documents/wisp
+
+screenshot_scale = 0.6
+screenshot_quality = 70
+
+# general, interview, meeting or lecture
+mode = "general"
+# Notes, a resume or an agenda to include with every request.
+context_file = ""
