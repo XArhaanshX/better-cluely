@@ -26,19 +26,41 @@ Rectangle {
     }
 
     implicitHeight: col.implicitHeight + 24
+    // Opens like a drawer: height eases from 0 while it fades in. While
+    // open, the height keeps following the content, so streaming text grows
+    // the panel smoothly instead of in jumps.
+    property bool open: false
+    clip: true
+    height: open ? implicitHeight : 0
+    opacity: open ? 1 : 0
+    visible: opacity > 0.01 || height > 0.5
+    Behavior on height {
+        NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+    }
+    Behavior on opacity {
+        NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+    }
     radius: Theme.radius
     color: Theme.glass
     border.width: 1
     border.color: Theme.glassBorder
 
+    // A different answer (new, focused, or stepped to) fades in.
     Connections {
         target: Daemon
-        function onAnswerStarted() {
+        function onCurrentIdChanged() {
             flick.contentY = 0;
+            swap.restart();
         }
-        function onAnswerFocused() {
-            flick.contentY = 0;
-        }
+    }
+    NumberAnimation {
+        id: swap
+        target: flick
+        property: "opacity"
+        from: 0
+        to: 1
+        duration: 180
+        easing.type: Easing.OutCubic
     }
 
     Column {

@@ -21,17 +21,52 @@ Rectangle {
     }
 
     implicitHeight: col.implicitHeight + 20
+    // Opens like a drawer: height eases from 0 while it fades in. While
+    // open, the height keeps following the content, so streaming text grows
+    // the panel smoothly instead of in jumps.
+    property bool open: false
+    clip: true
+    height: open ? implicitHeight : 0
+    opacity: open ? 1 : 0
+    visible: opacity > 0.01 || height > 0.5
+    Behavior on height {
+        NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+    }
+    Behavior on opacity {
+        NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+    }
     radius: Theme.radius
+
+    // Each finished line nudges the captions up, like a ticker.
+    Connections {
+        target: Daemon.lines
+        function onCountChanged() {
+            slideIn.restart();
+        }
+    }
+    NumberAnimation {
+        id: slideIn
+        target: slide
+        property: "y"
+        from: 12
+        to: 0
+        duration: 180
+        easing.type: Easing.OutCubic
+    }
     color: Theme.glass
     border.width: 1
     border.color: Theme.glassBorder
 
     Column {
         id: col
+        transform: Translate {
+            id: slide
+        }
         anchors {
             left: parent.left
             right: parent.right
-            verticalCenter: parent.verticalCenter
+            top: parent.top
+            topMargin: 10
             leftMargin: 14
             rightMargin: 14
         }
