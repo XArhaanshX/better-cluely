@@ -18,8 +18,16 @@ wallpaper.
   conversation and gives the most useful help right now: the answer to the
   question just asked, a fix for the code on screen, or what to say next.
 - **Live transcript** of both sides, labelled You and Them.
+- **Echo cancellation on loudspeakers**: without headphones the mic hears
+  the other side, so wisp records you through PipeWire's WebRTC echo
+  canceller (on by itself when the output is speakers, off for headphones
+  and Bluetooth). Your call app's audio is not rerouted and no default
+  device changes.
 - **Auto-answers**: questions from Them start an answer immediately. Assist
   then shows it at once; pressing Assist again asks fresh with a screenshot.
+  Questions are recognised by word order ("what did you…" is a question,
+  "what we did was…" is not) and by indirect prompts ("give me an
+  example…", "I'm curious about…").
 - **Quick actions**: What should I say?, Follow-up questions, Recap,
   Fact-check, Explain, Meeting notes.
 - **Meeting notes** when you stop listening: summary, key points, decisions,
@@ -76,7 +84,7 @@ Measured on a Dell Pro Max 16 (Core Ultra, Arrow Lake), Nov 2026:
 | End of speech to finished line | ~0.6 s |
 | Screenshot (grim + Pillow, 0.6x JPEG) | ~70–90 ms |
 | First token, Claude Code + Haiku, text | 0.75–1.1 s |
-| First token, Claude Code + Haiku, with screenshot | 1.0–2.6 s |
+| First token, Claude Code + Haiku, with screenshot | 1.0–3.5 s (depends on how much text is on screen) |
 | First token, cold `claude -p` (what a naive integration pays) | ~1.7 s + |
 | Auto-answer, seen when you press Assist | 0 s: it is already there |
 
@@ -116,6 +124,8 @@ Hyprland ── global shortcuts ──► Quickshell overlay (shell/, QML)
 
 - `daemon/wispd/audio.py`: PipeWire capture, default-device following,
   speaker detection.
+- `daemon/wispd/aec.py`: the echo canceller, a private PipeWire client
+  running the `echo-cancel` module in monitor mode.
 - `daemon/wispd/stt.py`: one recognizer, both speakers decoded in a batch,
   silence skipped.
 - `daemon/wispd/llm/`: Claude Code process pool and Anthropic SDK backend.
@@ -127,5 +137,13 @@ Tests: `cd daemon && uv run pytest`. Benchmarks are in `daemon/bench/`.
 ## Limits
 
 - Speech recognition is English only.
+- Echo cancellation measures 65–67 dB on a virtual room
+  (`daemon/bench/aec_check.py`); real speakers through room air give less,
+  typically 20–30 dB. Headphones avoid echo entirely.
+- Question detection is rule-based. It covers common interview and meeting
+  phrasings, not every way of asking something.
+- Answer speed is the model's own time to first token: 0.75–1.1 s for text
+  and 1–3.5 s with a screenshot through Claude Code. Auto-answers hide it
+  when the other side asks the question.
 - In a screen share or recording of the whole screen, the overlay shows as
   a black rectangle: that is how Hyprland's `no_screen_share` works.
