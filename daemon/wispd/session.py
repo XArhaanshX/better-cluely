@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 
 from . import prompts
-from .audio import AudioCapture
+from .audio import AudioCapture, DeviceWatcher, echo_risk
 from .config import DATA_DIR, Config
 from .llm import BackendError, Request, make_backend
 from .prompts import Line
@@ -35,6 +35,10 @@ RUNTIME_KEYS = {"mode", "preset", "backend", "auto_answer", "capture_mic", "capt
 SYSTEM_AUDIO_GATE = 0.0008  # the sink monitor is digital: silence is ~0
 AUTO_MIN_GAP_S = 2.5
 AUTO_FRESH_S = 45.0
+# On loudspeakers the mic hears the other side. Mic audio quieter than
+# this fraction of their level is treated as echo, not as the user.
+ECHO_RATIO = 0.6
+ECHO_DECAY = 0.92  # per 20 ms frame: the echo estimate fades over ~250 ms
 LEVEL_HZ = 12
 
 
@@ -76,6 +80,9 @@ class Session:
         self._captures: dict[str, AudioCapture] = {}
         self._pumps: dict[str, asyncio.Task] = {}
         self._levels = {"you": 0.0, "them": 0.0}
+        self._watcher: DeviceWatcher | None = None
+        self._echo_risk = False
+        self._them_env = 0.0
         self._tasks: dict[str, asyncio.Task] = {}
         self._bg: set[asyncio.Task] = set()
         self._last_auto = 0.0
@@ -135,11 +142,17 @@ class Session:
                                            ("them", self.cfg.capture_system)) if enabled]
             for source in wanted:
                 await self._start_capture(source)
+            self._watcher = DeviceWatcher(self._devices_changed)
+            await self._watcher.start()
+            self._echo_risk = echo_risk(self._watcher.sink)
             self.listening = True
             self.listen_started = time.time()
         else:
             self.listening = False
             self.listen_started = None
+            if self._watcher:
+                await self._watcher.stop()
+                self._watcher = None
             for source in list(self._captures):
                 await self._stop_capture(source)
                 if self.stt:
@@ -160,12 +173,28 @@ class Session:
         if cap:
             await cap.stop()
 
+    async def _devices_changed(self, sink: str, source: str, old: tuple[str, str]) -> None:
+        self._echo_risk = echo_risk(sink)
+        if not self.listening:
+            return
+        if sink != old[0] and "them" in self._captures:
+            await self._stop_capture("them")
+            await self._start_capture("them")
+        if source != old[1] and "you" in self._captures:
+            await self._stop_capture("you")
+            await self._start_capture("you")
+
     async def _pump(self, cap: AudioCapture) -> None:
         async for frame in cap.frames():
+            rms = frame.rms
+            if frame.source == "them":
+                self._them_env = max(rms, self._them_env * ECHO_DECAY)
+            elif self._echo_risk and rms < ECHO_RATIO * self._them_env:
+                rms = 0.0  # speaker echo, not the user
             if frame.rms > self._levels[frame.source]:
                 self._levels[frame.source] = frame.rms
             if self.stt:
-                self.stt.push(frame.source, frame.samples, frame.rms)
+                self.stt.push(frame.source, frame.samples, rms)
         # parec ended on its own (device gone, PipeWire restart): retry.
         if self.listening and self._captures.get(cap.source) is cap:
             log.info("restarting %s capture", cap.source)

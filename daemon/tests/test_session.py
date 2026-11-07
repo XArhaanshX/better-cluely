@@ -132,3 +132,36 @@ def test_settings_persist(make_session, tmp_path):
     events = asyncio.run(run())
     assert json.loads((tmp_path / "state.json").read_text())["mode"] == "interview"
     assert any(e["ev"] == "error" for e in events)
+
+
+def test_speaker_echo_is_not_transcribed_as_the_user(make_session):
+    import numpy as np
+    from wispd.audio import Frame
+
+    class FakeCapture:
+        def __init__(self, source, frames):
+            self.source, self._frames = source, frames
+
+        async def frames(self):
+            for f in self._frames:
+                yield f
+
+    class FakeStt:
+        def __init__(self):
+            self.pushed = []
+
+        def push(self, source, samples, rms):
+            self.pushed.append((source, rms))
+
+    async def run(echo_risk):
+        s, _, _ = make_session()
+        s.stt = FakeStt()
+        s._echo_risk = echo_risk
+        z = np.zeros(320, dtype=np.float32)
+        await s._pump(FakeCapture("them", [Frame("them", z, 0.20)]))
+        await s._pump(FakeCapture("you", [Frame("you", z, 0.05),    # echo of them
+                                          Frame("you", z, 0.40)]))  # user talking over them
+        return [rms for src, rms in s.stt.pushed if src == "you"]
+
+    assert asyncio.run(run(True)) == [0.0, 0.40]
+    assert asyncio.run(run(False)) == [0.05, 0.40]  # headphones: keep everything
