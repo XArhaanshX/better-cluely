@@ -24,6 +24,9 @@ stt_threads = 2
 capture_mic = true
 capture_system = true
 mic_gate = 0.006
+# "auto": on loudspeakers, record the mic through PipeWire's WebRTC echo
+# canceller so the other side isn't transcribed as you. "off": never.
+echo_cancel = "auto"
 
 # Answer questions from the other side as soon as they finish asking.
 auto_answer = true

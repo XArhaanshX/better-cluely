@@ -182,3 +182,127 @@ def test_notes_are_saved_as_markdown(make_session, tmp_path):
     assert text.startswith("# Notes, ")
     assert "one two three" in text
     assert "Them: Let's ship the beta on Friday" in text
+
+
+# -- echo cancellation wiring ------------------------------------------------
+
+class _FakeCapture:
+    started = []
+
+    def __init__(self, source, device=None):
+        self.source, self.device = source, device
+
+    async def start(self):
+        _FakeCapture.started.append((self.source, self.device))
+
+    async def frames(self):
+        await asyncio.Event().wait()
+        yield  # pragma: no cover
+
+    async def stop(self):
+        pass
+
+
+class _FakeWatcher:
+    sink = ""
+
+    def __init__(self, on_change):
+        self.on_change = on_change
+        self.source = "mic"
+
+    async def start(self):
+        pass
+
+    async def stop(self):
+        pass
+
+
+class _FakeAec:
+    def __init__(self, ok=True):
+        self.ok, self.running, self.starts = ok, False, 0
+
+    async def start(self):
+        self.starts += 1
+        self.running = self.ok
+        return self.ok
+
+    async def stop(self):
+        self.running = False
+
+
+@pytest.fixture
+def audio_fakes(monkeypatch):
+    _FakeCapture.started = []
+    monkeypatch.setattr(session_mod, "AudioCapture", _FakeCapture)
+    monkeypatch.setattr(session_mod, "DeviceWatcher", _FakeWatcher)
+
+    def setup(s, sink, aec_ok=True):
+        _FakeWatcher.sink = sink
+        s._aec = _FakeAec(aec_ok)
+        return s._aec
+    return setup
+
+
+SPEAKERS = "alsa_output.pci-0000_00_1f.3-platform-sof_sdw.HiFi__Speaker__sink"
+HEADPHONES = "alsa_output.pci-0000_00_1f.3-platform-sof_sdw.HiFi__Headphones__sink"
+
+
+def test_speakers_record_the_mic_through_echo_cancellation(make_session, audio_fakes):
+    async def run():
+        s, _, _ = make_session()
+        fake = audio_fakes(s, SPEAKERS)
+        await s.listen(True)
+        status = s.status()
+        await s.listen(False)
+        return fake, status
+    fake, status = asyncio.run(run())
+    assert ("you", session_mod.aec.SOURCE_NAME) in _FakeCapture.started
+    assert ("them", None) in _FakeCapture.started
+    assert status["echo_cancel"] is True
+    assert not fake.running  # stopped with listening
+
+
+def test_headphones_use_the_plain_mic(make_session, audio_fakes):
+    async def run():
+        s, _, _ = make_session()
+        fake = audio_fakes(s, HEADPHONES)
+        await s.listen(True)
+        await s.listen(False)
+        return fake
+    fake = asyncio.run(run())
+    assert ("you", None) in _FakeCapture.started
+    assert fake.starts == 0
+
+
+def test_falls_back_when_echo_cancellation_cannot_start(make_session, audio_fakes):
+    async def run():
+        s, _, _ = make_session()
+        audio_fakes(s, SPEAKERS, aec_ok=False)
+        await s.listen(True)
+        return s
+    s = asyncio.run(run())
+    assert ("you", None) in _FakeCapture.started
+    assert s._echo_risk and not s._aec.running  # level heuristic stays in charge
+
+
+def test_switching_to_headphones_mid_call_turns_it_off(make_session, audio_fakes):
+    async def run():
+        s, _, _ = make_session()
+        fake = audio_fakes(s, SPEAKERS)
+        await s.listen(True)
+        _FakeCapture.started.clear()
+        await s._devices_changed(HEADPHONES, "mic", (SPEAKERS, "mic"))
+        return fake
+    fake = asyncio.run(run())
+    assert not fake.running
+    assert ("you", None) in _FakeCapture.started
+
+
+def test_echo_cancel_off_never_starts_it(make_session, audio_fakes):
+    async def run():
+        s, _, _ = make_session(echo_cancel="off")
+        fake = audio_fakes(s, SPEAKERS)
+        await s.listen(True)
+        return fake
+    fake = asyncio.run(run())
+    assert fake.starts == 0 and ("you", None) in _FakeCapture.started

@@ -56,6 +56,9 @@ class Config:
     capture_system: bool = True
     # RMS level below which mic audio is treated as silence and not decoded.
     mic_gate: float = 0.006
+    # "auto": on loudspeakers, record the mic through PipeWire's WebRTC echo
+    # canceller so the other side is not transcribed as you. "off": never.
+    echo_cancel: str = "auto"
 
     # Generate an answer as soon as the other side finishes a question.
     auto_answer: bool = True

@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 
 from . import prompts
+from . import aec
 from .audio import AudioCapture, DeviceWatcher, echo_risk
 from .config import DATA_DIR, Config
 from .llm import BackendError, Request, make_backend
@@ -84,6 +85,7 @@ class Session:
         self._pumps: dict[str, asyncio.Task] = {}
         self._levels = {"you": 0.0, "them": 0.0}
         self._watcher: DeviceWatcher | None = None
+        self._aec = aec.EchoCanceller(DATA_DIR)
         self._echo_risk = False
         self._them_env = 0.0
         self._tasks: dict[str, asyncio.Task] = {}
@@ -141,15 +143,20 @@ class Session:
         if on == self.listening:
             return
         if on:
-            wanted = [s for s, enabled in (("you", self.cfg.capture_mic),
-                                           ("them", self.cfg.capture_system)) if enabled]
-            for source in wanted:
-                await self._start_capture(source)
             self._watcher = DeviceWatcher(self._devices_changed)
             await self._watcher.start()
             self._echo_risk = echo_risk(self._watcher.sink)
             self.listening = True
             self.listen_started = time.time()
+            if self.cfg.capture_system:
+                await self._start_capture("them")
+            self._status()
+            if self.cfg.capture_mic:
+                device = await self._mic_device()
+                if not self.listening:  # stopped while echo cancellation started
+                    await self._aec.stop()
+                    return
+                await self._start_capture("you", device)
         else:
             started = self.listen_started or 0
             self.listening = False
@@ -161,14 +168,25 @@ class Session:
                 await self._stop_capture(source)
                 if self.stt:
                     self.stt.flush(source)
+            await self._aec.stop()
             heard = sum(1 for ln in self.lines if ln.t + self.t0 >= started)
             if self.cfg.auto_notes and heard >= NOTES_MIN_LINES:
                 # Let the flushed last utterances land before writing notes.
                 self._spawn(self._notes_after(0.5))
         self._status()
 
-    async def _start_capture(self, source: str) -> None:
-        cap = AudioCapture(source)
+    async def _mic_device(self) -> str | None:
+        """Where to record "you" from: the echo-cancelled mic on loudspeakers,
+        the default mic otherwise or if echo cancellation cannot start."""
+        if self.cfg.echo_cancel == "auto" and self._echo_risk:
+            if await self._aec.start():
+                return aec.SOURCE_NAME
+        else:
+            await self._aec.stop()
+        return None
+
+    async def _start_capture(self, source: str, device: str | None = None) -> None:
+        cap = AudioCapture(source, device)
         await cap.start()
         self._captures[source] = cap
         self._pumps[source] = asyncio.create_task(self._pump(cap))
@@ -188,17 +206,23 @@ class Session:
         if sink != old[0] and "them" in self._captures:
             await self._stop_capture("them")
             await self._start_capture("them")
-        if source != old[1] and "you" in self._captures:
+        if "you" not in self._captures:
+            return
+        want_aec = self.cfg.echo_cancel == "auto" and self._echo_risk
+        # Echo cancellation follows the default mic by itself; the plain
+        # capture has to be restarted on a new one.
+        if want_aec != self._aec.running or (source != old[1] and not self._aec.running):
             await self._stop_capture("you")
-            await self._start_capture("you")
+            await self._start_capture("you", await self._mic_device())
+            self._status()
 
     async def _pump(self, cap: AudioCapture) -> None:
         async for frame in cap.frames():
             rms = frame.rms
             if frame.source == "them":
                 self._them_env = max(rms, self._them_env * ECHO_DECAY)
-            elif self._echo_risk and rms < ECHO_RATIO * self._them_env:
-                rms = 0.0  # speaker echo, not the user
+            elif self._echo_risk and not self._aec.running and rms < ECHO_RATIO * self._them_env:
+                rms = 0.0  # speaker echo, not the user (fallback without AEC)
             if frame.rms > self._levels[frame.source]:
                 self._levels[frame.source] = frame.rms
             if self.stt:
@@ -210,7 +234,8 @@ class Session:
             if self.listening and self._captures.get(cap.source) is cap:
                 await cap.stop()
                 self._captures.pop(cap.source, None)
-                await self._start_capture(cap.source)
+                device = await self._mic_device() if cap.source == "you" else None
+                await self._start_capture(cap.source, device)
 
     async def _level_loop(self) -> None:
         while True:
@@ -420,6 +445,7 @@ class Session:
             "listen_started": self.listen_started,
             "stt_ready": self.stt is not None,
             "stt_error": self.stt_error,
+            "echo_cancel": self._aec.running,
             "backend": self.backend.describe(),
             "config": self.cfg.public(),
             "modes": {k: v[0] for k, v in prompts.MODES.items()},
