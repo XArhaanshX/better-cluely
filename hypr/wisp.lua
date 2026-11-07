@@ -19,15 +19,23 @@ for _, dir in ipairs({ "Left", "Right", "Up", "Down" }) do
     wisp("SUPER + ALT + " .. dir, "move" .. dir)
 end
 
--- The overlay is one layer surface with the namespace "wisp".
--- Blur what is behind it (not the wallpaper: ii turns on xray for all
--- layers), keep it out of screen sharing and recordings, and don't
--- animate it in and out.
-hl.layer_rule({ match = { namespace = "^wisp$" }, blur = true })
-hl.layer_rule({ match = { namespace = "^wisp$" }, xray = false })
-hl.layer_rule({ match = { namespace = "^wisp$" }, ignore_alpha = 0.3 })
-hl.layer_rule({ match = { namespace = "^wisp$" }, no_anim = true })
-hl.layer_rule({ match = { namespace = "^wisp$" }, no_screen_share = true })
+-- The overlay is exactly one layer surface, namespace "wisp" (set in
+-- shell/modules/Overlay.qml; the two must match). There are no popups,
+-- tooltips or child windows, so this one match covers every pixel wisp
+-- draws. `hyprctl layers` shows it as namespace "wisp" on the Overlay level.
+--
+-- blur/xray/ignore_alpha: glass look over the window behind it, not the
+-- wallpaper (ii turns xray on for all layers, so it is turned back off).
+-- no_anim: appear and vanish in one frame.
+-- no_screen_share: in a full-screen share or recording the compositor
+-- paints this region solid black. Viewers see a black bar, not the
+-- overlay. Share a single window or tab instead and it is absent entirely.
+local WISP = { namespace = "^wisp$" }
+hl.layer_rule({ match = WISP, blur = true })
+hl.layer_rule({ match = WISP, xray = false })
+hl.layer_rule({ match = WISP, ignore_alpha = 0.3 })
+hl.layer_rule({ match = WISP, no_anim = true })
+hl.layer_rule({ match = WISP, no_screen_share = true })
 
 -- Start at login. The daemon restarts here rather than at user-session
 -- start so it picks up this login's WAYLAND_DISPLAY and Hyprland socket.
