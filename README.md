@@ -48,6 +48,23 @@ wallpaper.
 
 Everything except show/hide sits on `Super+Alt`, so no app loses a shortcut.
 
+## The `wisp` command
+
+One word gets you meeting-ready: it starts the daemon and the overlay if
+they are not running, shows the overlay and starts listening.
+
+```sh
+wisp                # start everything, show, listen
+wisp off            # stop listening, hide (notes are written), daemon stays up
+wisp ask            # Assist from the terminal; streams the answer and its timing
+wisp ask "text"     # ask a typed question
+wisp notes          # write meeting notes for the current session
+wisp show | hide | listen [on|off] | status | stop | restart
+```
+
+It drives the overlay through its global shortcuts, so it works even
+before the Hyprland keybinds have loaded.
+
 ## Speed
 
 Measured on a Dell Pro Max 16 (Core Ultra, Arrow Lake), Nov 2026:
