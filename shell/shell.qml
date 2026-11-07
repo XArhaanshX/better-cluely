@@ -22,6 +22,21 @@ ShellRoot {
         description: "Show or hide wisp"
         onPressed: Actions.toggle()
     }
+    // Deterministic forms for the `wisp` command line, which cannot know
+    // the current state and so cannot use toggle.
+    Shortcut {
+        name: "show"
+        description: "Show wisp"
+        onPressed: Ui.shown = true
+    }
+    Shortcut {
+        name: "hide"
+        description: "Hide wisp"
+        onPressed: {
+            Ui.typing = false;
+            Ui.shown = false;
+        }
+    }
     Shortcut {
         name: "assist"
         description: "Ask about the screen and the conversation"

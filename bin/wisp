@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# wisp: one command to get meeting-ready, plus controls.
+#
+#   wisp                 start the daemon and overlay, show it, start listening
+#   wisp off             stop listening and hide the overlay (daemon keeps running)
+#   wisp show | hide     show or hide the overlay
+#   wisp listen [on|off] start/stop listening (bare toggles)
+#   wisp ask [TEXT]      Assist, or ask a typed question; streams the answer here
+#   wisp notes           write meeting notes for the current session
+#   wisp status          daemon status
+#   wisp stop            stop the overlay and the daemon
+#   wisp restart         restart both
+set -euo pipefail
+
+REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+WISPD="$REPO/daemon/.venv/bin/wispd"
+
+say() { printf '\033[1mwisp\033[0m %s\n' "$*"; }
+die() { echo "wisp: $*" >&2; exit 1; }
+
+# Global shortcuts are registered by the overlay itself, so these work even
+# before the Hyprland keybinds are loaded.
+dispatch() { hyprctl dispatch "hl.dsp.global(\"wisp:$1\")" >/dev/null; }
+
+overlay_running() { pgrep -f "qs -c wisp" >/dev/null; }
+
+ensure_daemon() {
+    systemctl --user is-active --quiet wispd.service && return
+    systemctl --user start wispd.service
+    for _ in $(seq 1 50); do
+        [ -S "${XDG_RUNTIME_DIR:-/tmp}/wisp.sock" ] && return
+        sleep 0.1
+    done
+    die "daemon did not come up; see: journalctl --user -u wispd -e"
+}
+
+ensure_overlay() {
+    overlay_running && return
+    setsid -f qs -c wisp >/dev/null 2>&1
+    # Give Quickshell a moment to register its global shortcuts.
+    for _ in $(seq 1 30); do
+        overlay_running && sleep 0.6 && return
+        sleep 0.1
+    done
+    die "overlay did not start; try: qs -c wisp"
+}
+
+cmd="${1:-up}"; shift || true
+case "$cmd" in
+    up)
+        ensure_daemon
+        ensure_overlay
+        dispatch show
+        "$WISPD" listen on
+        say "listening. Super+Alt+Enter to Assist, 'wisp off' when you're done." ;;
+    off)
+        "$WISPD" listen off 2>/dev/null || true
+        overlay_running && dispatch hide
+        say "stopped listening; notes are written if there was enough to say." ;;
+    show|hide)
+        ensure_overlay; dispatch "$cmd" ;;
+    listen)
+        ensure_daemon
+        case "${1:-}" in
+            on|off) "$WISPD" listen "$1" ;;
+            "") "$WISPD" status | python3 -c 'import json,sys; print("off" if json.load(sys.stdin)["listening"] else "on")' | xargs "$WISPD" listen ;;
+            *) die "usage: wisp listen [on|off]" ;;
+        esac ;;
+    ask)
+        ensure_daemon
+        if [ $# -gt 0 ]; then exec "$WISPD" ask "$@"; else exec "$WISPD" ask --action assist; fi ;;
+    notes)
+        ensure_daemon; exec "$WISPD" ask --no-screenshot --action notes ;;
+    status)
+        exec "$WISPD" status ;;
+    stop)
+        pkill -f "qs -c wisp" 2>/dev/null || true
+        systemctl --user stop wispd.service
+        say "stopped." ;;
+    restart)
+        pkill -f "qs -c wisp" 2>/dev/null || true
+        systemctl --user restart wispd.service
+        ensure_overlay
+        say "restarted." ;;
+    -h|--help|help)
+        sed -n '2,13p' "$0" ;;
+    *)
+        die "unknown command '$cmd' (try: wisp help)" ;;
+esac

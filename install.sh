@@ -51,6 +51,11 @@ KEYBINDS="$CONF/hypr/custom/keybinds.lua"
 touch "$KEYBINDS"
 grep -qF 'require("custom.wisp")' "$KEYBINDS" || printf '\n-- wisp overlay\n%s\n' "$LOADER" >> "$KEYBINDS"
 
+say "wisp command -> ~/.local/bin/wisp"
+mkdir -p "$HOME/.local/bin"
+chmod +x "$REPO/bin/wisp"
+ln -sf "$REPO/bin/wisp" "$HOME/.local/bin/wisp"
+
 say "systemd user unit"
 mkdir -p "$CONF/systemd/user"
 sed "s|@REPO@|$REPO|g" "$REPO/systemd/wispd.service.in" > "$CONF/systemd/user/wispd.service"
