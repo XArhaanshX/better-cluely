@@ -35,10 +35,17 @@ async def focused_monitor() -> str | None:
     return None
 
 
-def _encode(ppm: bytes, scale: float, quality: int) -> bytes:
+# Longest edge sent to the model. The API scales bigger images down anyway,
+# so anything above this is upload time and tokens for nothing (a 4K
+# monitor at 0.6x would be 2304 px wide).
+MAX_EDGE = 1568
+
+
+def _encode(ppm: bytes, scale: float, quality: int, max_edge: int = MAX_EDGE) -> bytes:
     img = Image.open(io.BytesIO(ppm))
+    w, h = img.size
+    scale = min(scale, max_edge / max(w, h))
     if scale != 1.0:
-        w, h = img.size
         img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))),
                          Image.Resampling.BILINEAR, reducing_gap=2.0)
     buf = io.BytesIO()
