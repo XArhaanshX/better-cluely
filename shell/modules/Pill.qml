@@ -29,6 +29,23 @@ Rectangle {
         return (m < 10 ? "0" : "") + m + ":" + (s % 60 < 10 ? "0" : "") + (s % 60);
     }
 
+    // Drag the bar to move the overlay. The window moves under the pointer,
+    // so the offset from the press point is the distance moved each time.
+    MouseArea {
+        anchors.fill: parent
+        cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+        property real pressX
+        property real pressY
+        onPressed: m => {
+            pressX = m.x;
+            pressY = m.y;
+        }
+        onPositionChanged: m => {
+            if (pressed)
+                Ui.drag(m.x - pressX, m.y - pressY);
+        }
+    }
+
     Row {
         id: row
         anchors.centerIn: parent
@@ -68,10 +85,10 @@ Rectangle {
         PillButton {
             id: listenButton
             anchors.verticalCenter: parent.verticalCenter
-            icon: Daemon.listening ? "stop_circle" : "mic"
+            icon: Daemon.listening ? (hovered ? "stop_circle" : "radio_button_checked") : "mic"
             iconFill: Daemon.listening ? 1 : 0
             iconColor: Daemon.listening ? Theme.liveStrong : Theme.text
-            label: Daemon.listening ? root.elapsed() : "Listen"
+            label: Daemon.listening ? (hovered ? "Stop" : "Recording " + root.elapsed()) : "Listen"
             keys: hovered || !Daemon.listening ? ["❖", "Alt", "L"] : []
             onClicked: Daemon.toggleListen()
             LevelBars {
@@ -94,7 +111,7 @@ Rectangle {
             icon: "bolt"
             iconFill: 1
             iconColor: Theme.accent
-            label: "Ask"
+            label: "Assist"
             keys: ["❖", "Alt", "↵"]
             onClicked: root.askRequested()
         }

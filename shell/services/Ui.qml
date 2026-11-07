@@ -20,6 +20,11 @@ Singleton {
     property alias offsetX: saved.offsetX
     property alias offsetY: saved.offsetY
 
+    function drag(dx, dy) {
+        saved.offsetX += Math.round(dx);
+        saved.offsetY = Math.max(0, saved.offsetY + Math.round(dy));
+    }
+
     function move(dx, dy) {
         saved.offsetX += dx * moveStep;
         saved.offsetY = Math.max(0, saved.offsetY + dy * moveStep);
