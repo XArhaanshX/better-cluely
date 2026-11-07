@@ -165,3 +165,20 @@ def test_speaker_echo_is_not_transcribed_as_the_user(make_session):
 
     assert asyncio.run(run(True)) == [0.0, 0.40]
     assert asyncio.run(run(False)) == [0.05, 0.40]  # headphones: keep everything
+
+
+def test_notes_are_saved_as_markdown(make_session, tmp_path):
+    async def run():
+        s, backend, events = make_session(notes_dir=str(tmp_path / "notes"))
+        say(s, "them", "Let's ship the beta on Friday")
+        say(s, "you", "I'll write the release notes")
+        await s.ask(action="notes", screenshot=False)
+        await asyncio.sleep(0.1)
+        return s, events
+    s, events = asyncio.run(run())
+    done = [e for e in events if e["ev"] == "answer.done" and e.get("path")]
+    assert len(done) == 1
+    text = open(done[0]["path"]).read()
+    assert text.startswith("# Notes, ")
+    assert "one two three" in text
+    assert "Them: Let's ship the beta on Friday" in text

@@ -31,7 +31,8 @@ log = logging.getLogger(__name__)
 STATE_FILE = DATA_DIR / "state.json"
 SESSIONS_DIR = DATA_DIR / "sessions"
 # Settings the UI may change at runtime; they persist in state.json.
-RUNTIME_KEYS = {"mode", "preset", "backend", "auto_answer", "capture_mic", "capture_system"}
+RUNTIME_KEYS = {"mode", "preset", "backend", "auto_answer", "auto_notes", "capture_mic", "capture_system"}
+NOTES_MIN_LINES = 4
 SYSTEM_AUDIO_GATE = 0.0008  # the sink monitor is digital: silence is ~0
 AUTO_MIN_GAP_S = 2.5
 AUTO_FRESH_S = 45.0
@@ -58,6 +59,8 @@ class Answer:
     cancelled: bool = False
     error: str | None = None
     shown: bool = False
+    screenshot: bool = False
+    path: str | None = None
 
     def public(self) -> dict:
         return asdict(self)
@@ -148,6 +151,7 @@ class Session:
             self.listening = True
             self.listen_started = time.time()
         else:
+            started = self.listen_started or 0
             self.listening = False
             self.listen_started = None
             if self._watcher:
@@ -157,6 +161,10 @@ class Session:
                 await self._stop_capture(source)
                 if self.stt:
                     self.stt.flush(source)
+            heard = sum(1 for ln in self.lines if ln.t + self.t0 >= started)
+            if self.cfg.auto_notes and heard >= NOTES_MIN_LINES:
+                # Let the flushed last utterances land before writing notes.
+                self._spawn(self._notes_after(0.5))
         self._status()
 
     async def _start_capture(self, source: str) -> None:
@@ -242,6 +250,24 @@ class Session:
         self._start(kind="auto", title="Answer", auto=True, line_index=index,
                     prompt=prompts.AUTO_PROMPT.format(question=question), screenshot=False)
 
+    async def _notes_after(self, delay: float) -> None:
+        await asyncio.sleep(delay)
+        await self.ask(action="notes", screenshot=False)
+
+    def _save_notes(self, a: Answer) -> str | None:
+        folder = self.cfg.notes_path()
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.fromtimestamp(a.started).strftime("%Y-%m-%d %H%M")
+            path = folder / f"{stamp} {prompts.MODES.get(self.cfg.mode, ('General',))[0]}.md"
+            header = f"# Notes, {datetime.fromtimestamp(a.started):%A %d %B %Y, %H:%M}\n\n"
+            transcript = prompts.format_transcript(self.lines, max_chars=200_000)
+            path.write_text(header + a.text.strip() + "\n\n## Transcript\n\n```\n" + transcript + "\n```\n")
+            return str(path)
+        except OSError as e:
+            log.warning("could not save notes: %s", e)
+            return None
+
     def _latest_auto(self) -> Answer | None:
         """An auto answer to the newest thing Them said, not yet shown by Ask."""
         last_them = next((i for i in range(len(self.lines) - 1, -1, -1)
@@ -275,7 +301,8 @@ class Session:
 
     def _start(self, *, kind: str, title: str, prompt: str, screenshot: bool,
                auto: bool = False, line_index: int | None = None, monitor: str | None = None) -> Answer:
-        a = Answer(id=uuid.uuid4().hex[:8], kind=kind, title=title, auto=auto, line_index=line_index)
+        a = Answer(id=uuid.uuid4().hex[:8], kind=kind, title=title, auto=auto, line_index=line_index,
+                   screenshot=screenshot)
         self.answers.append(a)
         del self.answers[:-50]
         self._emit({"ev": "answer.start", **a.public(), "screenshot": screenshot})
@@ -306,7 +333,10 @@ class Session:
                 self._emit({"ev": "answer.delta", "id": a.id, "text": delta})
             a.total_ms = int((time.perf_counter() - t0) * 1000)
             a.done = True
-            self._emit({"ev": "answer.done", "id": a.id, "first_ms": a.first_ms, "total_ms": a.total_ms})
+            if a.kind == "notes":
+                a.path = self._save_notes(a)
+            self._emit({"ev": "answer.done", "id": a.id, "first_ms": a.first_ms,
+                        "total_ms": a.total_ms, "path": a.path})
             log.info("%s answer: first token %s ms, done %s ms", a.kind, a.first_ms, a.total_ms)
         except asyncio.CancelledError:
             a.done = a.cancelled = True
