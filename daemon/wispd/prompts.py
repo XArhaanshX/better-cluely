@@ -46,6 +46,22 @@ ACTIONS = {
     "recap": ("Recap", "Recap the conversation so far: key points, decisions, and open questions, as short bullets."),
     "factcheck": ("Fact-check", "Check the most recent factual claims made in the conversation. List any that are wrong or doubtful with a one-line correction. If they all hold up, say so in one line."),
     "explain": ("Explain", "Explain the most recent technical term, concept or reference from the conversation, briefly, with one example."),
+    "notes": ("Meeting notes", """Write notes for this whole conversation, to keep and share. Ignore the usual length limit. Use exactly these sections, and leave out any that would be empty:
+
+## Summary
+Two or three sentences.
+
+## Key points
+Bullets.
+
+## Decisions
+Bullets.
+
+## Next steps
+A checklist ("- [ ] ..."), with the owner in bold when one was named.
+
+## Follow-up email
+A short email the user could send afterwards, with a subject line."""),
 }
 
 AUTO_PROMPT = """Them just asked: "{question}"

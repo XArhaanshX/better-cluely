@@ -62,6 +62,11 @@ class Config:
     screenshot_scale: float = 0.6
     screenshot_quality: int = 70
 
+    # Write meeting notes when listening stops (needs a few lines of transcript).
+    auto_notes: bool = True
+    # Where notes are saved as Markdown; empty means ~/Documents/wisp.
+    notes_dir: str = ""
+
     mode: str = "general"
     # Optional notes, a resume, an agenda: included with every request.
     context_file: str = ""
@@ -87,6 +92,11 @@ class Config:
         except OSError as e:
             log.warning("cannot read api_key_file %s: %s", path, e)
             return None
+
+    def notes_path(self) -> Path:
+        if self.notes_dir:
+            return Path(self.notes_dir).expanduser()
+        return Path.home() / "Documents" / "wisp"
 
     def context_text(self) -> str:
         if not self.context_file:
