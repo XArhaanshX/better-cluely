@@ -1,4 +1,4 @@
--- wisp: shortcuts, layer rules and autostart for Hyprland.
+-- wisp: shortcuts and layer rules for Hyprland.
 -- install.sh links this to ~/.config/hypr/custom/wisp.lua and loads it from
 -- custom/keybinds.lua. All shortcuts are Super+Alt+key except show/hide,
 -- so none of them steal a key that apps use (Ctrl+Enter, Ctrl+\ ...).
@@ -37,9 +37,5 @@ hl.layer_rule({ match = WISP, ignore_alpha = 0.3 })
 hl.layer_rule({ match = WISP, no_anim = true })
 hl.layer_rule({ match = WISP, no_screen_share = true })
 
--- Start at login. The daemon restarts here rather than at user-session
--- start so it picks up this login's WAYLAND_DISPLAY and Hyprland socket.
-hl.on("hyprland.start", function ()
-    hl.exec_cmd("systemctl --user restart wispd.service")
-    hl.exec_cmd("qs -c wisp")
-end)
+-- Nothing starts at login. The `wisp` command starts the daemon and the
+-- overlay when you ask for them; until then these shortcuts do nothing.

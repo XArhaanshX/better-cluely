@@ -60,6 +60,8 @@ Everything except show/hide sits on `Super+Alt`, so no app loses a shortcut.
 
 One word gets you meeting-ready: it starts the daemon and the overlay if
 they are not running, shows the overlay and starts listening.
+Nothing starts at login: wisp only runs after you type `wisp`, and
+`wisp stop` shuts it down completely.
 
 ```sh
 wisp                # start everything, show, listen

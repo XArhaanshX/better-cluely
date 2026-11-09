@@ -12,5 +12,5 @@ Environment=PYTHONUNBUFFERED=1
 # Below normal CPU priority, so speech decoding never makes the call stutter.
 Nice=5
 
-[Install]
-WantedBy=default.target
+# No [Install] section on purpose: wisp never starts at login. The `wisp`
+# command starts this unit when you ask for it.
