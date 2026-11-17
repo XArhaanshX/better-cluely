@@ -1,6 +1,9 @@
 """Hindi recognition accuracy and speed on real recorded speech.
 
-  uv run python bench/hindi_eval.py <clips-dir> [threads]
+  uv run python bench/hindi_eval.py <clips-dir> [threads] [sherpa]
+
+Uses wisp's decoder (omni.OmniCtc, kept to Devanagari) unless "sherpa" is
+given, which runs plain sherpa-onnx for comparison.
 
 <clips-dir> holds WAV files plus refs.json ({"name": {"text": ...}}), e.g.
 clips from the IndicVoices-R Hindi set (unscripted speech, many speakers).
@@ -19,6 +22,7 @@ import numpy as np
 import sherpa_onnx
 
 from wispd.config import DEFAULT_HI_MODEL as M
+from wispd.omni import OmniCtc
 
 
 def load(path: Path) -> np.ndarray:
@@ -54,15 +58,19 @@ def edits(a: list, b: list) -> int:
 def main() -> None:
     clips = Path(sys.argv[1])
     threads = int(sys.argv[2]) if len(sys.argv) > 2 else 4
+    engine = sys.argv[3] if len(sys.argv) > 3 else "wisp"
     refs = json.loads((clips / "refs.json").read_text())
-    rec = sherpa_onnx.OfflineRecognizer.from_omnilingual_asr_ctc(
-        model=str(M / "model.int8.onnx"), tokens=str(M / "tokens.txt"), num_threads=threads)
+    if engine == "sherpa":
+        rec = sherpa_onnx.OfflineRecognizer.from_omnilingual_asr_ctc(
+            model=str(M / "model.int8.onnx"), tokens=str(M / "tokens.txt"), num_threads=threads)
 
-    def decode(pcm):
-        s = rec.create_stream()
-        s.accept_waveform(16000, pcm)
-        rec.decode_stream(s)
-        return s.result.text
+        def decode(pcm):
+            s = rec.create_stream()
+            s.accept_waveform(16000, pcm)
+            rec.decode_stream(s)
+            return s.result.text
+    else:
+        decode = OmniCtc(M, threads)
     c_err = c_tot = w_err = w_tot = 0
     audio_s = compute_s = 0.0
     worst = []
@@ -78,7 +86,7 @@ def main() -> None:
         c_err += ce; c_tot += len(gold.replace(" ", ""))
         w_err += we; w_tot += len(gold.split())
         worst.append((ce / max(1, len(gold.replace(" ", ""))), name, gold, hyp))
-    print(f"{len(refs)} clips, {audio_s:.0f} s of audio, {threads} threads")
+    print(f"{len(refs)} clips, {audio_s:.0f} s of audio, {threads} threads, {engine}")
     print(f"CER {100 * c_err / c_tot:.1f}%   WER {100 * w_err / w_tot:.1f}%   "
           f"real-time factor {compute_s / audio_s:.3f}")
     worst.sort(reverse=True)
