@@ -24,6 +24,9 @@ Singleton {
     readonly property string mode: config.mode ?? "general"
     readonly property string preset: config.resolved_preset ?? "fast"
     readonly property bool autoAnswer: config.auto_answer ?? true
+    readonly property string language: config.language ?? "en"
+    readonly property string answerLanguage: config.answer_language ?? "auto"
+    readonly property var answerLanguages: status.answer_languages ?? ({})
 
     property real levelYou: 0
     property real levelThem: 0
@@ -80,6 +83,15 @@ Singleton {
             return;
         const i = keys.indexOf(mode);
         setOption("mode", keys[(i + (step || 1) + keys.length) % keys.length]);
+    }
+    function toggleLanguage() {
+        setOption("language", language === "hi" ? "en" : "hi");
+    }
+    function cycleAnswerLanguage() {
+        const keys = Object.keys(answerLanguages);
+        if (keys.length === 0)
+            return;
+        setOption("answer_language", keys[(keys.indexOf(answerLanguage) + 1) % keys.length]);
     }
     function togglePreset() {
         setOption("preset", preset === "fast" ? "smart" : "fast");

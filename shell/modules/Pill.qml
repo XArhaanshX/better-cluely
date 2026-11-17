@@ -163,6 +163,22 @@ Rectangle {
             onClicked: Daemon.togglePreset()
         }
 
+        // Spoken language (click) and answer language (right-click).
+        PillButton {
+            anchors.verticalCenter: parent.verticalCenter
+            icon: "translate"
+            iconColor: Theme.muted
+            label: (Daemon.language === "hi" ? "हिन्दी" : "EN")
+                + (Daemon.answerLanguage !== "auto" ? " → " + (Daemon.answerLanguages[Daemon.answerLanguage] ?? Daemon.answerLanguage) : "")
+            labelColor: Theme.muted
+            onClicked: m => {
+                if (m.button === Qt.RightButton)
+                    Daemon.cycleAnswerLanguage();
+                else
+                    Daemon.toggleLanguage();
+            }
+        }
+
         // Problems only: daemon down, speech model loading or broken.
         PillButton {
             visible: !Daemon.connected || !Daemon.sttReady
