@@ -3,11 +3,11 @@ Uses the recordings bundled with the multilingual model; skipped when the
 model is not downloaded."""
 
 import asyncio
-import wave
 
 import numpy as np
 import pytest
 
+from tests.audio_util import load_16k
 from wispd.audio import FRAME_SAMPLES
 from wispd.config import DEFAULT_HI_MODEL, VAD_MODEL
 from wispd.stt_segments import SegmentTranscriber
@@ -18,12 +18,7 @@ pytestmark = pytest.mark.skipif(not (WAVS.exists() and VAD_MODEL.exists()),
 
 
 def frames(path):
-    with wave.open(str(path)) as w:
-        ch, rate = w.getnchannels(), w.getframerate()
-        pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768
-    pcm = pcm.reshape(-1, ch).mean(axis=1)
-    if rate != 16000:
-        pcm = np.interp(np.arange(0, len(pcm), rate / 16000), np.arange(len(pcm)), pcm).astype(np.float32)
+    pcm = load_16k(path)
     for i in range(0, len(pcm) - FRAME_SAMPLES + 1, FRAME_SAMPLES):
         yield pcm[i:i + FRAME_SAMPLES]
 
