@@ -92,3 +92,40 @@ def test_more_questions(text):
 ])
 def test_more_statements(text):
     assert not looks_like_question(text)
+
+
+# -- Hindi and Hinglish ------------------------------------------------------
+
+@pytest.mark.parametrize("text", [
+    "आपने यह प्रोजेक्ट कैसे बनाया",                 # question word mid-sentence
+    "क्या आपने कभी Kubernetes पर काम किया है",       # yes/no with क्या, code-mixed
+    "अपने बारे में थोड़ा बताइए",                     # polite request, no question word
+    "आपकी सबसे बड़ी कमज़ोरी क्या है",
+    "ये तो ठीक है ना",                               # tag question
+    "आपने कितने साल काम किया",
+    "इस सिस्टम को कैसे स्केल करेंगे?",
+    "aapne ye project kaise banaya",                 # romanized Hinglish
+    "apne baare mein thoda bataiye",
+])
+def test_hindi_questions(text):
+    assert looks_like_question(text)
+
+
+@pytest.mark.parametrize("text", [
+    "जब मैं गूगल में था तब हमने यही किया",           # जब is relative, not कब
+    "पता नहीं क्या हुआ था उस दिन",                   # embedded "no idea what"
+    "मैंने यह काम क्योंकि ज़रूरी था इसलिए किया",       # क्योंकि is "because"
+    "हमने पूरा डेटाबेस बदल दिया",
+    "क्या बात है बहुत बढ़िया",                        # exclamation
+    "humne caching use ki thi",
+])
+def test_hindi_statements(text):
+    assert not looks_like_question(text)
+
+
+def test_answer_language_goes_into_the_system_prompt():
+    from wispd.prompts import ANSWER_LANGUAGES
+    for key in ANSWER_LANGUAGES:
+        assert "Language: " in system_prompt("general", key)
+    assert system_prompt("general") == system_prompt("general", "auto")
+    assert "Latin script" in system_prompt("interview", "hinglish")

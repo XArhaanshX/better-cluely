@@ -18,7 +18,7 @@ How to answer:
 - Keep it short: one to three sentences, or at most five bullets, unless the user asks for more or the task is code.
 - No preamble, no restating the question, no closing offer.
 - Markdown is rendered. Use **bold** for the words the user should catch first. Put code in fenced blocks with a language tag.
-- The transcript comes from live speech recognition and has mistakes. Read through them to the words that were meant.
+- The transcript comes from live speech recognition and has mistakes. Read through them to the words that were meant. It may be in English, Hindi (Devanagari) or a mix of both.
 - In the transcript, "Them" is the other side of the conversation and "You" is the user.
 - A screenshot, when attached, is the user's screen at the moment they asked."""
 
@@ -75,9 +75,19 @@ class Line:
     t: float     # seconds since session start
 
 
-def system_prompt(mode: str) -> str:
+# How answers should be written. "auto" follows the conversation.
+ANSWER_LANGUAGES = {
+    "auto": ("Auto", "Answer in the language of the conversation: English if it is in English, Hindi in Devanagari if it is in Hindi, and the same Hindi-English mix (Hinglish, in Latin script) if the two are mixed. A question the user types to you is answered in the language it was typed in."),
+    "en": ("English", "Always answer in English, even when the conversation is in Hindi."),
+    "hi": ("Hindi", "Always answer in Hindi, written in Devanagari. Keep technical terms, code and names in English."),
+    "hinglish": ("Hinglish", "Always answer in Hinglish: natural Hindi-English mix written in Latin script, the way it would be spoken (e.g. \"Maine is project mein caching use ki thi\"). Keep code in English."),
+}
+
+
+def system_prompt(mode: str, answer_language: str = "auto") -> str:
     _, extra = MODES.get(mode, MODES["general"])
-    return f"{BASE}\n\nMode: {extra}"
+    _, lang = ANSWER_LANGUAGES.get(answer_language, ANSWER_LANGUAGES["auto"])
+    return f"{BASE}\n\nLanguage: {lang}\n\nMode: {extra}"
 
 
 def fmt_time(seconds: float) -> str:
@@ -147,9 +157,67 @@ def _words(sentence: str) -> list[str]:
     return [w.strip(",;:\"'()").lower() for w in sentence.split() if w.strip(",;:\"'()")]
 
 
+# Hindi has separate word families for questions (क-: क्या, कैसे, कब,
+# कहाँ, कौन...) and for relative clauses (ज-: जब, जो, जहाँ...), so "जब मैं
+# गूगल में था" ("when I was at Google") is never mistaken for a question,
+# and a question word anywhere in the sentence counts: Hindi does not move
+# it to the front ("आपने यह कैसे बनाया"). Romanized Hinglish is matched too.
+_DEVANAGARI = re.compile(r"[\u0900-\u097F]")
+_HI_WH = {
+    "क्या", "क्यों", "क्यूँ", "क्यूं", "कैसे", "कैसा", "कैसी", "कब", "कहाँ", "कहां",
+    "कौन", "कौनसा", "कौनसी", "कौनसे", "कितना", "कितने", "कितनी", "किस", "किसने",
+    "किसको", "किसका", "किसकी", "किसके", "किसे", "किन", "किन्हें",
+    "kya", "kyu", "kyun", "kyon", "kaise", "kaisa", "kaisi", "kab", "kahan", "kahaan",
+    "kaun", "kaunsa", "kaunsi", "kitna", "kitne", "kitni", "kis", "kisne", "kisko", "kiska",
+}
+# Polite requests that ask for an answer without a question word.
+_HI_ASK = {
+    "बताइए", "बताइये", "बताएं", "बताएँ", "बतायें", "बताओ", "बताना", "बतायेंगे", "बताएंगे",
+    "समझाइए", "समझाइये", "समझाओ", "समझाएं", "समझाएँ",
+    "bataiye", "bataye", "batayein", "batao", "batana", "samjhaiye", "samjhao",
+}
+# "पता नहीं क्या हुआ" ("no idea what happened"), "क्या बात है" ("what a
+# thing!"), "क्यों कि" ("because"), "कैसे भी" ("somehow") are statements.
+_HI_NOT = re.compile(
+    r"(पता नहीं|नहीं पता|मालूम नहीं|नहीं मालूम|क्या बात है|क्यों कि|कैसे भी|कब से नहीं|"
+    r"pata nahi|nahi pata|kya baat hai|kyun ki|kaise bhi)")
+# Tag questions: "...है ना?", "...ठीक है ना".
+_HI_TAG = re.compile(r"(है ना|हैं ना|था ना|थी ना|ना\s*$|न\s*$|hai na|haina|na\s*$)")
+
+
+def _looks_like_hindi_question(sentence: str) -> bool:
+    words = [w.strip(",;:\"'()।").lower() for w in sentence.split()]
+    words = [w for w in words if w]
+    if len(words) < 3:
+        return False
+    line = " ".join(words)
+    if _HI_NOT.search(line):
+        return False
+    if any(w in _HI_ASK for w in words):
+        return True
+    if _HI_TAG.search(line):
+        return True
+    return any(w in _HI_WH for w in words)
+
+
+def _is_hindi(text: str) -> bool:
+    if _DEVANAGARI.search(text):
+        return True
+    words = {w.strip(",.?!;:").lower() for w in text.split()}
+    return bool(words & (_HI_WH | _HI_ASK)) and bool(words & {
+        "hai", "hain", "tha", "thi", "aap", "aapne", "tum", "tumne", "mujhe", "hum", "ko",
+        "ka", "ki", "ke", "mein", "se", "kar", "karte", "kiya", "sakte", "raha", "rahe"})
+
+
 def looks_like_question(text: str) -> bool:
     """Cheap check for whether an utterance asks something worth answering."""
     t = text.strip()
+    if _is_hindi(t):
+        if t.rstrip("। ").endswith("?"):
+            return len(t.split()) >= 2
+        # Hindi sentences end with "।" (danda) as well as "."
+        last = [x for x in re.split(r"(?<=[.!?।])\s+", t) if x][-1]
+        return _looks_like_hindi_question(last)
     if len(t.split()) < 4:
         return False
     sentences = [x for x in re.split(r"(?<=[.!?])\s+", t) if x]
