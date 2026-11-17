@@ -21,18 +21,20 @@ from datetime import datetime
 from . import prompts
 from . import aec
 from .audio import AudioCapture, DeviceWatcher, echo_risk
-from .config import DATA_DIR, Config
+from .config import DATA_DIR, DEFAULT_HI_MODEL, VAD_MODEL, Config
 from .llm import BackendError, Request, make_backend
 from .prompts import Line
 from .screen import capture
 from .stt import Transcriber, Utterance
+from .stt_segments import SegmentTranscriber
 
 log = logging.getLogger(__name__)
 
 STATE_FILE = DATA_DIR / "state.json"
 SESSIONS_DIR = DATA_DIR / "sessions"
 # Settings the UI may change at runtime; they persist in state.json.
-RUNTIME_KEYS = {"mode", "preset", "backend", "auto_answer", "auto_notes", "capture_mic", "capture_system"}
+RUNTIME_KEYS = {"mode", "preset", "backend", "auto_answer", "auto_notes", "capture_mic",
+                "capture_system", "answer_language", "language"}
 NOTES_MIN_LINES = 4
 SYSTEM_AUDIO_GATE = 0.0008  # the sink monitor is digital: silence is ~0
 AUTO_MIN_GAP_S = 2.5
@@ -115,14 +117,27 @@ class Session:
         task.add_done_callback(self._bg.discard)
         return task
 
+    def _system_prompt(self) -> str:
+        return prompts.system_prompt(self.cfg.mode, self.cfg.answer_language)
+
     def _prime_backend(self) -> None:
         set_system = getattr(self.backend, "set_system", None)
         if set_system:
-            set_system(prompts.system_prompt(self.cfg.mode))
+            set_system(self._system_prompt())
+
+    def _make_stt(self, loop: asyncio.AbstractEventLoop):
+        if self.cfg.language == "hi":
+            # Hindi (and Hindi-English) needs the multilingual model, which
+            # decodes per utterance; 4 threads keeps captions about 1 s behind.
+            return SegmentTranscriber(DEFAULT_HI_MODEL, VAD_MODEL, max(4, self.cfg.stt_threads),
+                                      self._on_utterance, loop)
+        return Transcriber(self.cfg.stt_model_dir, self.cfg.stt_threads, self._on_utterance, loop)
 
     async def _load_stt(self) -> None:
         loop = asyncio.get_running_loop()
-        stt = Transcriber(self.cfg.stt_model_dir, self.cfg.stt_threads, self._on_utterance, loop)
+        language = self.cfg.language
+        stt = self._make_stt(loop)
+        self.stt_error = None
         try:
             await loop.run_in_executor(None, stt.load)
         except Exception as e:
@@ -131,11 +146,26 @@ class Session:
             self._emit({"ev": "error", "message": self.stt_error})
             self._status()
             return
+        if language != self.cfg.language:
+            return  # switched again while loading; the newer load wins
         stt.add_source("you", self.cfg.mic_gate)
         stt.add_source("them", SYSTEM_AUDIO_GATE)
         stt.start()
-        self.stt = stt
+        old, self.stt = self.stt, stt
+        if old:
+            old.stop()
         self._status()
+
+    async def _switch_language(self) -> None:
+        """Swap speech recognition for the new language. Capture keeps
+        running; frames are dropped for the second or two the model loads."""
+        old, self.stt = self.stt, None
+        for source in ("you", "them"):
+            self.partial[source] = ""
+        if old:
+            await asyncio.to_thread(old.stop)
+        self._status()
+        await self._load_stt()
 
     # -- listening ---------------------------------------------------------
 
@@ -346,7 +376,7 @@ class Session:
                 a.capture_ms = int((time.perf_counter() - t0) * 1000)
                 self._emit({"ev": "answer.captured", "id": a.id, "capture_ms": a.capture_ms})
             req = Request(
-                system=prompts.system_prompt(self.cfg.mode),
+                system=self._system_prompt(),
                 context=prompts.context_block(self.cfg.context_text(), self.lines),
                 prompt=prompt,
                 image_jpeg=image,
@@ -413,8 +443,14 @@ class Session:
             self._prime_backend()
             await self.backend.start()
             self._spawn(old.close())
-        elif key == "mode":
+        elif key in ("mode", "answer_language"):
             self._prime_backend()
+        elif key == "language":
+            if value not in ("en", "hi"):
+                setattr(self.cfg, key, "en")
+                self._save_state()
+                self._emit({"ev": "error", "message": f"unsupported language {value!r}; use en or hi"})
+            self._spawn(self._switch_language())
         elif key in ("capture_mic", "capture_system") and self.listening:
             await self.listen(False)
             await self.listen(True)
@@ -445,11 +481,13 @@ class Session:
             "listen_started": self.listen_started,
             "stt_ready": self.stt is not None,
             "stt_error": self.stt_error,
+            "language": self.cfg.language,
             "echo_cancel": self._aec.running,
             "backend": self.backend.describe(),
             "config": self.cfg.public(),
             "modes": {k: v[0] for k, v in prompts.MODES.items()},
             "actions": {k: v[0] for k, v in prompts.ACTIONS.items()},
+            "answer_languages": {k: v[0] for k, v in prompts.ANSWER_LANGUAGES.items()},
         }
 
     def _status(self) -> None:

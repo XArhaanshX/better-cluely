@@ -306,3 +306,64 @@ def test_echo_cancel_off_never_starts_it(make_session, audio_fakes):
         return fake
     fake = asyncio.run(run())
     assert fake.starts == 0 and ("you", None) in _FakeCapture.started
+
+
+# -- spoken language ---------------------------------------------------------
+
+class _FakeStt:
+    made = []
+
+    def __init__(self, *args, **kwargs):
+        self.kind = type(self).__name__
+        self.sources, self.running, self.stopped = [], False, False
+        _FakeStt.made.append(self)
+
+    def load(self):
+        pass
+
+    def add_source(self, name, gate):
+        self.sources.append(name)
+
+    def start(self):
+        self.running = True
+
+    def stop(self):
+        self.running, self.stopped = False, True
+
+
+class FakeEnglish(_FakeStt):
+    pass
+
+
+class FakeHindi(_FakeStt):
+    pass
+
+
+def test_switching_language_swaps_speech_recognition(make_session, monkeypatch):
+    monkeypatch.setattr(session_mod, "Transcriber", FakeEnglish)
+    monkeypatch.setattr(session_mod, "SegmentTranscriber", FakeHindi)
+    _FakeStt.made = []
+
+    async def run():
+        s, _, events = make_session()
+        await s._load_stt()
+        english = s.stt
+        await s.set("language", "hi")
+        for _ in range(50):
+            if isinstance(s.stt, FakeHindi):
+                break
+            await asyncio.sleep(0.01)
+        hindi = s.stt
+        await s.set("language", "xx")  # rejected, falls back to English
+        for _ in range(50):
+            if isinstance(s.stt, FakeEnglish) and s.stt is not english:
+                break
+            await asyncio.sleep(0.01)
+        return s, english, hindi, events
+
+    s, english, hindi, events = asyncio.run(run())
+    assert isinstance(english, FakeEnglish) and english.stopped
+    assert isinstance(hindi, FakeHindi) and hindi.sources == ["you", "them"] and hindi.stopped
+    assert isinstance(s.stt, FakeEnglish) and s.stt.running and s.cfg.language == "en"
+    assert any(e["ev"] == "error" and "unsupported language" in e["message"] for e in events)
+    assert s.status()["language"] == "en"
