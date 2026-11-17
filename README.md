@@ -144,11 +144,14 @@ Tests: `cd daemon && uv run pytest`. Benchmarks are in `daemon/bench/`.
 
 ## Limits
 
-- Speech recognition covers English and Hindi (including Hindi-English
-  mixing). Hindi decodes per utterance, so its captions run about 1 s behind
-  speech instead of a fraction of a second; on unscripted speech from 15
-  speakers it measures 12% CER (`daemon/bench/hindi_eval.py`). It often drops
-  the halant in consonant clusters (अठठाई for अट्ठाई), which still reads clearly.
+- Speech recognition covers English and Hindi, including casual Hinglish.
+  Hindi decodes per utterance, so its captions run about 1 s behind speech
+  instead of a fraction of a second. On real unscripted speech
+  (`daemon/bench/hindi_eval.py`) it measures 12% CER on 16 clips and 15% on
+  20 conversational clips full of fillers; 79% of fillers (मतलब, अच्छा, तो,
+  वैसे) come through, while the short "हाँ" is often dropped. It also tends to
+  write consonant clusters without the halant (अठठाई for अट्ठाई), which still
+  reads clearly.
 - Echo cancellation measures 65–67 dB on a virtual room
   (`daemon/bench/aec_check.py`); real speakers through room air give less,
   typically 20–30 dB. Headphones avoid echo entirely.
