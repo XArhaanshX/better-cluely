@@ -27,6 +27,11 @@ SOCKET_PATH = RUNTIME_DIR / "wisp.sock"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
 DEFAULT_STT_MODEL = DATA_DIR / "models" / "sherpa-onnx-nemotron-speech-streaming-en-0.6b-160ms-int8-2026-04-25"
+# Hindi and Hindi-English: Meta's Omnilingual ASR (1600 languages, CTC).
+# It decodes whole utterances, so the voice-activity detector below cuts
+# speech into utterances first.
+DEFAULT_HI_MODEL = DATA_DIR / "models" / "sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-v2-int8-2026-02-05"
+VAD_MODEL = DATA_DIR / "models" / "silero_vad.onnx"
 
 # Model presets the UI can switch between. Through Claude Code, Haiku answers
 # in ~0.85 s and Opus in ~2.1 s (measured, bench/cc_latency.py), so the
@@ -69,6 +74,13 @@ class Config:
     auto_notes: bool = True
     # Where notes are saved as Markdown; empty means ~/Documents/wisp.
     notes_dir: str = ""
+
+    # Language spoken in the call: "en" (streaming English model) or "hi"
+    # (Hindi and Hindi-English, multilingual model).
+    language: str = "en"
+    # How answers are written: "auto" follows the conversation, or "en",
+    # "hi" (Devanagari) or "hinglish" (Hindi-English in Latin script).
+    answer_language: str = "auto"
 
     mode: str = "general"
     # Optional notes, a resume, an agenda: included with every request.
