@@ -7,6 +7,8 @@
 #   wisp listen [on|off] start/stop listening (bare toggles)
 #   wisp ask [TEXT]      Assist, or ask a typed question; streams the answer here
 #   wisp notes           write meeting notes for the current session
+#   wisp lang [en|hi]    language spoken in the call (hi downloads ~300 MB once)
+#   wisp answer [auto|en|hi|hinglish]  language answers are written in
 #   wisp status          daemon status
 #   wisp stop            stop the overlay and the daemon
 #   wisp restart         restart both
@@ -14,6 +16,9 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 WISPD="$REPO/daemon/.venv/bin/wispd"
+MODELS="${XDG_DATA_HOME:-$HOME/.local/share}/wisp/models"
+ASR_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
+HI_MODEL="sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-v2-int8-2026-02-05"
 
 say() { printf '\033[1mwisp\033[0m %s\n' "$*"; }
 die() { echo "wisp: $*" >&2; exit 1; }
@@ -21,6 +26,21 @@ die() { echo "wisp: $*" >&2; exit 1; }
 # Global shortcuts are registered by the overlay itself, so these work even
 # before the Hyprland keybinds are loaded.
 dispatch() { hyprctl dispatch "hl.dsp.global(\"wisp:$1\")" >/dev/null; }
+
+# Resumable, and aborts a stalled transfer instead of hanging on it.
+fetch() { curl -4 -fL -C - --retry 8 --retry-all-errors --speed-time 20 --speed-limit 10000 --progress-bar -o "$2" "$1"; }
+
+ensure_hindi_models() {
+    mkdir -p "$MODELS"
+    if [ ! -f "$MODELS/$HI_MODEL/model.int8.onnx" ]; then
+        say "downloading the Hindi speech model (~290 MB, once)"
+        fetch "$ASR_URL/$HI_MODEL.tar.bz2" "$MODELS/$HI_MODEL.tar.bz2"
+        tar xjf "$MODELS/$HI_MODEL.tar.bz2" -C "$MODELS" && rm "$MODELS/$HI_MODEL.tar.bz2"
+    fi
+    [ -f "$MODELS/silero_vad.onnx" ] || fetch "$ASR_URL/silero_vad.onnx" "$MODELS/silero_vad.onnx"
+}
+
+current() { "$WISPD" status | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['config'].get('$1', ''))"; }
 
 overlay_running() { pgrep -f "qs -c wisp" >/dev/null; }
 
@@ -69,6 +89,22 @@ case "$cmd" in
     ask)
         ensure_daemon
         if [ $# -gt 0 ]; then exec "$WISPD" ask "$@"; else exec "$WISPD" ask --action assist; fi ;;
+    lang)
+        ensure_daemon
+        case "${1:-}" in
+            "") say "speech language: $(current language) (wisp lang en|hi)" ;;
+            en) "$WISPD" set language en; say "listening for English" ;;
+            hi) ensure_hindi_models; "$WISPD" set language hi
+                say "listening for Hindi and Hindi-English; the speech model takes a few seconds to load" ;;
+            *) die "usage: wisp lang [en|hi]" ;;
+        esac ;;
+    answer)
+        ensure_daemon
+        case "${1:-}" in
+            "") say "answers in: $(current answer_language) (wisp answer auto|en|hi|hinglish)" ;;
+            auto|en|hi|hinglish) "$WISPD" set answer_language "$1"; say "answers in: $1" ;;
+            *) die "usage: wisp answer [auto|en|hi|hinglish]" ;;
+        esac ;;
     notes)
         ensure_daemon; exec "$WISPD" ask --no-screenshot --action notes ;;
     status)
@@ -83,7 +119,7 @@ case "$cmd" in
         ensure_overlay
         say "restarted." ;;
     -h|--help|help)
-        sed -n '2,13p' "$0" ;;
+        sed -n '2,15p' "$0" ;;
     *)
         die "unknown command '$cmd' (try: wisp help)" ;;
 esac

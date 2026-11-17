@@ -90,6 +90,9 @@ def main() -> None:
     listen = sub.add_parser("listen")
     listen.add_argument("state", choices=["on", "off"])
     sub.add_parser("status")
+    setp = sub.add_parser("set", help="change a runtime setting, e.g. 'set language hi'")
+    setp.add_argument("key")
+    setp.add_argument("value")
     args = p.parse_args()
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
@@ -104,6 +107,9 @@ def main() -> None:
         sys.exit(asyncio.run(client(cmd, follow_answer=True)))
     if args.command == "listen":
         sys.exit(asyncio.run(client({"cmd": "listen", "on": args.state == "on"}, False)))
+    if args.command == "set":
+        value = {"true": True, "false": False}.get(args.value.lower(), args.value)
+        sys.exit(asyncio.run(client({"cmd": "set", "key": args.key, "value": value}, False)))
     if args.command == "status":
         sys.exit(asyncio.run(client({"cmd": "status"}, False)))
 
