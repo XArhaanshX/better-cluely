@@ -1,6 +1,8 @@
 """Speech-to-text by utterance, for models that don't stream (Hindi).
 
-Meta's Omnilingual ASR decodes a whole utterance at once. A Silero voice
+Meta's Omnilingual ASR decodes a whole utterance at once (through
+omni.OmniCtc, which keeps the output in Devanagari: short utterances
+otherwise drift into Latin or Arabic script). A Silero voice
 activity detector per source cuts the audio into utterances. While someone
 is speaking, the utterance so far is re-decoded every PARTIAL_EVERY_S for
 live captions; when it ends (0.5 s of silence) it is decoded once more and
@@ -71,11 +73,9 @@ class SegmentTranscriber:
             if not path.exists():
                 raise FileNotFoundError(f"{path} is missing; run `wisp lang hi` to download it")
         t = time.perf_counter()
-        self._rec = sherpa_onnx.OfflineRecognizer.from_omnilingual_asr_ctc(
-            model=str(self.model_dir / "model.int8.onnx"),
-            tokens=str(self.model_dir / "tokens.txt"),
-            num_threads=self.threads,
-        )
+        from .omni import OmniCtc
+
+        self._rec = OmniCtc(self.model_dir, self.threads)
         self._vad_config = sherpa_onnx.VadModelConfig(
             silero_vad=sherpa_onnx.SileroVadModelConfig(
                 model=str(self.vad_model), threshold=0.5,
@@ -195,10 +195,7 @@ class SegmentTranscriber:
                     self._send(Utterance(name, text, st.started, time.time(), final=False))
 
     def _decode(self, samples: np.ndarray) -> str:
-        s = self._rec.create_stream()
-        s.accept_waveform(SAMPLE_RATE, samples)
-        self._rec.decode_stream(s)
-        return s.result.text.strip()
+        return self._rec(samples)
 
     def _send(self, u: Utterance) -> None:
         self._loop.call_soon_threadsafe(self._emit, u)

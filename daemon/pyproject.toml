@@ -8,6 +8,7 @@ dependencies = [
     "numpy>=2.0",
     "anthropic>=0.80",
     "pillow>=13.0.0",
+    "onnxruntime>=1.32.0",
 ]
 
 [project.scripts]
