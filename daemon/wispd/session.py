@@ -378,7 +378,8 @@ class Session:
             req = Request(
                 system=self._system_prompt(),
                 context=prompts.context_block(self.cfg.context_text(), self.lines),
-                prompt=prompt,
+                prompt=prompt + prompts.language_reminder(
+                    self.cfg.answer_language, self.lines, prompt if a.kind == "ask" else None),
                 image_jpeg=image,
             )
             async for delta in self.backend.stream(req):
