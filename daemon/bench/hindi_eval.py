@@ -9,10 +9,10 @@ factor for the multilingual model wisp uses for Hindi.
 """
 
 import json
+import subprocess
 import sys
 import time
 import unicodedata
-import wave
 from pathlib import Path
 
 import numpy as np
@@ -22,14 +22,12 @@ from wispd.config import DEFAULT_HI_MODEL as M
 
 
 def load(path: Path) -> np.ndarray:
-    with wave.open(str(path)) as w:
-        ch, rate = w.getnchannels(), w.getframerate()
-        pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768
-    pcm = pcm.reshape(-1, ch).mean(axis=1)
-    if rate != 16000:
-        idx = np.arange(0, len(pcm), rate / 16000)
-        pcm = np.interp(idx, np.arange(len(pcm)), pcm).astype(np.float32)
-    return pcm
+    """16 kHz mono float32. ffmpeg resamples with a proper low-pass filter;
+    plain interpolation from 48 kHz aliases, and on one clip that left the
+    model hearing almost nothing (which looked like a model failure)."""
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-ac", "1", "-ar", "16000",
+                          "-f", "s16le", "-"], capture_output=True, check=True).stdout
+    return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768
 
 
 def norm(text: str) -> str:
@@ -59,18 +57,22 @@ def main() -> None:
     refs = json.loads((clips / "refs.json").read_text())
     rec = sherpa_onnx.OfflineRecognizer.from_omnilingual_asr_ctc(
         model=str(M / "model.int8.onnx"), tokens=str(M / "tokens.txt"), num_threads=threads)
+
+    def decode(pcm):
+        s = rec.create_stream()
+        s.accept_waveform(16000, pcm)
+        rec.decode_stream(s)
+        return s.result.text
     c_err = c_tot = w_err = w_tot = 0
     audio_s = compute_s = 0.0
     worst = []
     for name, ref in sorted(refs.items()):
         pcm = load(clips / f"{name}.wav")
         t = time.perf_counter()
-        s = rec.create_stream()
-        s.accept_waveform(16000, pcm)
-        rec.decode_stream(s)
+        text = decode(pcm)
         compute_s += time.perf_counter() - t
         audio_s += len(pcm) / 16000
-        hyp, gold = norm(s.result.text), norm(ref["text"])
+        hyp, gold = norm(text), norm(ref["text"])
         ce = edits(list(gold.replace(" ", "")), list(hyp.replace(" ", "")))
         we = edits(gold.split(), hyp.split())
         c_err += ce; c_tot += len(gold.replace(" ", ""))
