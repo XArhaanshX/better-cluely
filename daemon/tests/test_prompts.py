@@ -129,3 +129,88 @@ def test_answer_language_goes_into_the_system_prompt():
         assert "Language: " in system_prompt("general", key)
     assert system_prompt("general") == system_prompt("general", "auto")
     assert "Latin script" in system_prompt("interview", "hinglish")
+
+
+# -- casual Hinglish -----------------------------------------------------------
+
+@pytest.mark.parametrize("text", [
+    "abbe tu kab aayega",
+    "chal na bata kya hua",                       # fillers in front of a real question
+    "yaar mujhe batao na tumne kaise kiya",
+    "kya yaar tu kab aayega",                     # reaction, then a real question
+    "tu aayega na",                               # tag question after a future verb
+    "kal aaoge na",
+    "तुम कल आओगे ना",
+    "कोड चल गया है ना",                           # tag after an auxiliary
+    "वो क्या बोलते हैं उसको कैशिंग उसके बारे में बताइए",  # filler phrase, then a request
+    "अरे भाई ये कैसे हुआ",
+    "kya scene hai",
+    "kyaaa hua",                                  # stretched spelling
+    "arre bhai bata",                             # bare request as the last word
+    "तू बोल ना कि तूने क्या सोचा",
+    "bhai kidhar hai tu",
+    "aap karenge kya",
+])
+def test_casual_hinglish_questions(text):
+    assert looks_like_question(text)
+
+
+@pytest.mark.parametrize("text", [
+    "arre kya yaar",                              # exasperation
+    "aur kya obviously maine kiya",               # "of course"
+    "kyun nahi bilkul",                           # "why not": agreement
+    "kya bakwas hai yaar",
+    "क्या है कि मैं उस दिन बिज़ी था",               # "the thing is..."
+    "वो क्या बोलते हैं उसको हम कैशिंग यूज़ करते थे",  # "what do you call it" filler
+    "पता है क्या हुआ कल ऑफिस में",                 # story opener
+    "मुझे पता नहीं ना",                            # emphatic "na"
+    "nahi na yaar aisa nahi hota",
+    "arre bhai sun na",                           # plea, not a question
+    "chal na yaar",
+    "accha theek hai",
+    "हाँ हाँ ठीक है",
+    "मैंने बता दिया था उसको",                      # "bata" mid-sentence is just a verb
+])
+def test_casual_hinglish_statements(text):
+    assert not looks_like_question(text)
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Tell me about a challenge you faced", True),  # "-enge" ending, but English
+    ("What was the biggest challenge", True),
+    ("We used omega for the release", False),
+])
+def test_english_words_with_hindi_looking_endings(text, expected):
+    assert looks_like_question(text) is expected
+
+
+# -- answer language decided per request ----------------------------------------
+
+from wispd.prompts import answer_language, language_reminder  # noqa: E402
+
+HINDI_CALL = [Line("them", "अरे यार तो बताओ अपने प्रोजेक्ट के बारे में", 0.0)]
+ENGLISH_CALL = [Line("them", "Tell me about your last project", 0.0)]
+
+
+def test_auto_answers_hindi_calls_in_hinglish_latin_script():
+    assert answer_language("auto", HINDI_CALL) == "hinglish"
+    assert "Latin" in language_reminder("auto", HINDI_CALL)
+
+
+def test_auto_leaves_english_calls_exactly_as_before():
+    assert answer_language("auto", ENGLISH_CALL) == "en"
+    assert language_reminder("auto", ENGLISH_CALL) == ""
+    assert language_reminder("auto", []) == ""
+
+
+def test_typed_questions_follow_the_language_typed():
+    assert answer_language("auto", HINDI_CALL, typed="How do I explain caching?") == "en"
+    assert answer_language("auto", ENGLISH_CALL, typed="caching kaise samjhaun yaar") == "hinglish"
+    assert answer_language("auto", ENGLISH_CALL, typed="कैशिंग कैसे समझाऊँ") == "hi"
+
+
+def test_a_fixed_setting_always_wins():
+    assert answer_language("hi", ENGLISH_CALL) == "hi"
+    assert answer_language("en", HINDI_CALL) == "en"
+    assert "English" in language_reminder("en", HINDI_CALL)
+    assert "Devanagari" in language_reminder("hi", ENGLISH_CALL)

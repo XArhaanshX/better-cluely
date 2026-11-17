@@ -19,6 +19,8 @@ How to answer:
 - No preamble, no restating the question, no closing offer.
 - Markdown is rendered. Use **bold** for the words the user should catch first. Put code in fenced blocks with a language tag.
 - The transcript comes from live speech recognition and has mistakes. Read through them to the words that were meant. It may be in English, Hindi (Devanagari) or a mix of both.
+- Casual Hindi and Hinglish is full of fillers and address words: अरे, अबे, यार, भाई, मतलब, अच्छा, "क्या बोलते हैं", "क्या है कि", and a final "ना" that can be a tag question ("आएगा ना?"), a plea ("बोल ना") or plain emphasis ("नहीं ना"). Read past them to what is meant. Reactions such as "क्या यार", "और क्या" or "क्यों नहीं" are not questions.
+- English words spoken inside Hindi are often written in Devanagari by the speech recognizer (कैशिंग is caching, डेटाबेस is database).
 - In the transcript, "Them" is the other side of the conversation and "You" is the user.
 - A screenshot, when attached, is the user's screen at the moment they asked."""
 
@@ -77,10 +79,10 @@ class Line:
 
 # How answers should be written. "auto" follows the conversation.
 ANSWER_LANGUAGES = {
-    "auto": ("Auto", "Answer in the language of the conversation: English if it is in English, Hindi in Devanagari if it is in Hindi, and the same Hindi-English mix (Hinglish, in Latin script) if the two are mixed. A question the user types to you is answered in the language it was typed in."),
+    "auto": ("Auto", "If the conversation is in English, answer in English. If it is in Hindi or Hinglish (Devanagari in the transcript), answer in Hinglish written in Latin script, the way people text it (e.g. \"Haan, isliye maine messages pehle database mein store kiye\"), with technical terms in English spelling. Do not answer in Devanagari unless the user types to you in Devanagari. Match how casual the conversation is, but never use rude address words such as abe or abbe, and keep interview answers professional."),
     "en": ("English", "Always answer in English, even when the conversation is in Hindi."),
     "hi": ("Hindi", "Always answer in Hindi, written in Devanagari. Keep technical terms, code and names in English."),
-    "hinglish": ("Hinglish", "Always answer in Hinglish: natural Hindi-English mix written in Latin script, the way it would be spoken (e.g. \"Maine is project mein caching use ki thi\"). Keep code in English."),
+    "hinglish": ("Hinglish", "Always answer in Hinglish: natural Hindi-English mix written in Latin script, the way it is actually spoken (e.g. \"Maine is project mein caching use ki thi\"). Casual where the conversation is casual (yaar, matlab, na are fine), never rude (no abe or abbe), and professional in interview answers. Keep code in English."),
 }
 
 
@@ -162,51 +164,132 @@ def _words(sentence: str) -> list[str]:
 # गूगल में था" ("when I was at Google") is never mistaken for a question,
 # and a question word anywhere in the sentence counts: Hindi does not move
 # it to the front ("आपने यह कैसे बनाया"). Romanized Hinglish is matched too.
-_DEVANAGARI = re.compile(r"[\u0900-\u097F]")
+#
+# Casual Hinglish needs more than that. It is full of fillers and address
+# words (अरे, अबे, यार, भाई, मतलब, "क्या बोलते हैं", "क्या है कि") and of
+# reactions built from question words ("क्या यार", "और क्या", "क्यों
+# नहीं"), and the sentence-final "ना" can be a tag question ("आएगा ना?"),
+# a plea ("चल ना", "बोल ना") or emphasis ("नहीं ना"). Fillers are removed,
+# reactions are removed and the rest is judged, and "ना" counts only after
+# a finished verb.
+_DEVANAGARI = re.compile(r"[ऀ-ॿ]")
 _HI_WH = {
-    "क्या", "क्यों", "क्यूँ", "क्यूं", "कैसे", "कैसा", "कैसी", "कब", "कहाँ", "कहां",
+    "क्या", "क्यों", "क्यूँ", "क्यूं", "कैसे", "कैसा", "कैसी", "कब", "कहाँ", "कहां", "किधर",
     "कौन", "कौनसा", "कौनसी", "कौनसे", "कितना", "कितने", "कितनी", "किस", "किसने",
     "किसको", "किसका", "किसकी", "किसके", "किसे", "किन", "किन्हें",
-    "kya", "kyu", "kyun", "kyon", "kaise", "kaisa", "kaisi", "kab", "kahan", "kahaan",
+    "kya", "kyu", "kyun", "kyon", "kaise", "kaisa", "kaisi", "kab", "kahan", "kahaan", "kidhar",
     "kaun", "kaunsa", "kaunsi", "kitna", "kitne", "kitni", "kis", "kisne", "kisko", "kiska",
 }
-# Polite requests that ask for an answer without a question word.
+# Polite or casual requests that ask for an answer without a question word.
 _HI_ASK = {
     "बताइए", "बताइये", "बताएं", "बताएँ", "बतायें", "बताओ", "बताना", "बतायेंगे", "बताएंगे",
     "समझाइए", "समझाइये", "समझाओ", "समझाएं", "समझाएँ",
     "bataiye", "bataye", "batayein", "batao", "batana", "samjhaiye", "samjhao",
 }
-# "पता नहीं क्या हुआ" ("no idea what happened"), "क्या बात है" ("what a
-# thing!"), "क्यों कि" ("because"), "कैसे भी" ("somehow") are statements.
-_HI_NOT = re.compile(
-    r"(पता नहीं|नहीं पता|मालूम नहीं|नहीं मालूम|क्या बात है|क्यों कि|कैसे भी|कब से नहीं|"
-    r"pata nahi|nahi pata|kya baat hai|kyun ki|kaise bhi)")
-# Tag questions: "...है ना?", "...ठीक है ना".
-_HI_TAG = re.compile(r"(है ना|हैं ना|था ना|थी ना|ना\s*$|न\s*$|hai na|haina|na\s*$)")
+# Also requests, but only as the last word ("बता", "बोलो"); mid-sentence
+# they are ordinary verbs ("मैंने बता दिया").
+_HI_ASK_LAST = {"बता", "बोलो", "बोल", "समझा", "bata", "bolo", "bol", "samjha"}
+# Fillers and address words, dropped from both ends of the sentence.
+_HI_FILLERS = {
+    "अरे", "अरेरे", "अबे", "ओए", "ओये", "यार", "भाई", "भैया", "बॉस", "अच्छा", "हाँ", "हां",
+    "हम्म", "मतलब", "चल", "चलो", "सुनो", "सुन", "देखो", "देख", "बस", "वैसे", "तो", "जी",
+    "ना", "न", "रे", "ओके", "बेसिकली", "एक्चुअली",
+    "arre", "arey", "arrey", "abbe", "abe", "abey", "oye", "oy", "yaar", "yar", "bhai",
+    "bhaiya", "bro", "boss", "accha", "acha", "achha", "achcha", "haan", "han", "hmm",
+    "matlab", "chal", "chalo", "suno", "dekho", "dekh", "bas", "waise", "vaise", "toh",
+    "ji", "na", "re", "basically", "actually",
+}
+# Filler phrases removed wherever they occur ("वो क्या बोलते हैं उसको...").
+_HI_FILLER_PHRASES = re.compile(
+    r"(क्या बोलते हैं|क्या कहते हैं|क्या बोलते|क्या कहते|क्या है कि|जो है ना|"
+    r"kya bolte hain|kya kehte hain|kya bolte|kya kehte|kya hai ki|jo hai na)")
+# Reactions built from question words: removed, then the rest is judged
+# ("क्या यार तू कब आएगा" still asks when).
+_HI_REACTIONS = re.compile(
+    r"(क्या यार|क्या बात है|क्या बकवास|क्या मज़ाक|क्या मजाक|और क्या|क्या ही|क्यों नहीं|"
+    r"कैसे नहीं|कैसे भी|क्यों कि|"
+    r"kya yaar|kya yar|kya baat hai|kya bakwas|kya mazaak|aur kya|kya hi|kyun nahi|kyu nahi|"
+    r"kyon nahi|kaise nahi|kaise bhi|kyun ki)")
+# The question word sits inside a statement ("पता नहीं क्या हुआ", "पता है
+# क्या हुआ..." is a story opener): the whole sentence is a statement.
+_HI_EMBEDDED = re.compile(
+    r"(पता नहीं|नहीं पता|मालूम नहीं|नहीं मालूम|क्या पता|पता है क्या|कब से नहीं|"
+    r"pata nahi|pata nahin|nahi pata|kya pata|pata hai kya)")
+# A finished verb or auxiliary before a final "ना" makes it a tag question.
+_HI_AUX = {"है", "हैं", "था", "थी", "थे", "हो", "होगा", "होगी", "होंगे",
+           "hai", "hain", "tha", "thi", "the", "ho", "hoga", "hogi", "honge"}
+_HI_TAG_ENDINGS_DEV = ("गा", "गी", "गे", "या", "यी", "ये", "ई", "ए")
+_HI_TAG_ENDINGS_LAT = ("ga", "gi", "ge", "ya", "yi", "ye")
+# Distinctive Hinglish words; one is enough to read romanized text as Hindi.
+_HINGLISH = _HI_WH | _HI_ASK | (_HI_FILLERS - {"na", "re", "ji", "bro", "boss", "basically",
+                                               "actually", "toh", "bas", "dekh", "han", "hmm"}) | {
+    "hai", "hain", "tha", "thi", "nahi", "nahin", "mujhe", "aap", "aapne", "tum", "tumne",
+    "tune", "humne", "kuch", "bhi", "kiya", "raha", "rahe", "rahi", "sakte", "karoge",
+    "karenge", "karega", "karte", "karna", "mein", "bata", "bolo"}
+
+
+def _hi_words(sentence: str) -> list[str]:
+    out = []
+    for w in sentence.split():
+        w = w.strip(",;:\"'()।.!").lower()
+        if not w:
+            continue
+        if not _DEVANAGARI.search(w):
+            w = re.sub(r"(.)\1{2,}", r"\1", w)  # "kyaaa" -> "kya", "arreee" -> "are"... keep doubles
+        out.append(w)
+    return out
 
 
 def _looks_like_hindi_question(sentence: str) -> bool:
-    words = [w.strip(",;:\"'()।").lower() for w in sentence.split()]
-    words = [w for w in words if w]
-    if len(words) < 3:
+    line = " ".join(_hi_words(sentence))
+    if _HI_EMBEDDED.search(line):
         return False
-    line = " ".join(words)
-    if _HI_NOT.search(line):
+    line = _HI_FILLER_PHRASES.sub(" ", line)
+    line = _HI_REACTIONS.sub(" ", line)
+    words = line.split()
+
+    # Final "ना": a tag question only after a finished verb ("आएगा ना",
+    # "है ना", "kiya na"); after "नहीं" it is emphasis, after a bare verb
+    # stem ("चल ना", "बोल ना") it is a plea.
+    tag = False
+    if len(words) >= 2 and words[-1] in ("ना", "न", "na"):
+        prev = words[-2]
+        if prev not in ("नहीं", "nahi", "nahin"):
+            tag = (prev in _HI_AUX or prev.endswith(_HI_TAG_ENDINGS_DEV)
+                   or prev.endswith(_HI_TAG_ENDINGS_LAT))
+
+    while words and words[0] in _HI_FILLERS:
+        words = words[1:]
+    while words and words[-1] in _HI_FILLERS:
+        words = words[:-1]
+    if not words:
         return False
-    if any(w in _HI_ASK for w in words):
+    if tag and len(words) >= 2:
         return True
-    if _HI_TAG.search(line):
+    if words[-1] in _HI_ASK_LAST or any(w in _HI_ASK for w in words):
         return True
-    return any(w in _HI_WH for w in words)
+    return len(words) >= 2 and any(w in _HI_WH for w in words)
+
+
+# Romanized Hindi verb forms: future (aayega, karoge), polite imperative
+# (bataiye), progressive and perfect (raha, kiya) endings.
+_HI_VERB_FORM = re.compile(r"^[a-z]{2,}(ega|egi|enge|oge|ogi|unga|ungi|iye|aiye|rahe|raha|rahi)$")
+
+
+# English words that also end like Hindi verbs ("challenge", "omega") only
+# count as Hindi when the sentence doesn't read as English.
+_EN_STOP = {"the", "a", "an", "is", "are", "was", "were", "you", "me", "about", "what", "how",
+            "why", "when", "where", "do", "did", "can", "could", "would", "to", "of", "in", "on",
+            "for", "with", "that", "this", "it", "i", "we", "they", "your", "my", "have", "has"}
 
 
 def _is_hindi(text: str) -> bool:
     if _DEVANAGARI.search(text):
         return True
-    words = {w.strip(",.?!;:").lower() for w in text.split()}
-    return bool(words & (_HI_WH | _HI_ASK)) and bool(words & {
-        "hai", "hain", "tha", "thi", "aap", "aapne", "tum", "tumne", "mujhe", "hum", "ko",
-        "ka", "ki", "ke", "mein", "se", "kar", "karte", "kiya", "sakte", "raha", "rahe"})
+    words = set(_hi_words(text))
+    if words & _HINGLISH:
+        return True
+    return any(_HI_VERB_FORM.match(w) for w in words) and len(words & _EN_STOP) < 2
 
 
 def looks_like_question(text: str) -> bool:
@@ -239,3 +322,34 @@ def looks_like_question(text: str) -> bool:
     if first in _AUX:
         return second in _SUBJECTS
     return bool(_INVERTED.search(line))
+
+
+# The system prompt states the language rule, but a transcript full of
+# Devanagari outweighs it, so the language is also decided here and
+# restated at the end of each request, where it carries the most weight.
+_REMINDERS = {
+    "en": "Write the answer in English.",
+    "hi": "Write the answer in Hindi in Devanagari script; keep technical terms, names and code in English.",
+    "hinglish": "Write the answer in Hinglish using only Latin (English) letters, no Devanagari, the way people text it.",
+}
+
+
+def answer_language(setting: str, lines: list[Line], typed: str | None = None) -> str:
+    """The language this answer should be written in: en, hi or hinglish."""
+    if setting in _REMINDERS:
+        return setting
+    if typed:
+        if _DEVANAGARI.search(typed):
+            return "hi"
+        return "hinglish" if _is_hindi(typed) else "en"
+    recent = " ".join(ln.text for ln in lines[-6:])
+    return "hinglish" if recent and _is_hindi(recent) else "en"
+
+
+def language_reminder(setting: str, lines: list[Line], typed: str | None = None) -> str:
+    """Suffix for the request. Empty for an English conversation on auto, so
+    English prompts are exactly as before."""
+    lang = answer_language(setting, lines, typed)
+    if setting == "auto" and lang == "en":
+        return ""
+    return f"\n\n({_REMINDERS[lang]})"
