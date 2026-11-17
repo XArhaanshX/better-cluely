@@ -36,6 +36,10 @@ wallpaper.
 - **Modes**: General, Interview, Meeting, Lecture. Add your own notes, resume
   or agenda with `context_file`.
 - **Fast / Smart** toggle: Haiku or Opus.
+- **Hindi and Hinglish**: `wisp lang hi` (or the language button on the bar)
+  switches speech recognition to Hindi, including Hindi-English mixing.
+  Answers follow the conversation's language, or are fixed to English,
+  Hindi or Hinglish (right-click the language button, or `wisp answer`).
 - **Stays out of the way**: a layer surface above all windows that never
   takes focus unless you type, never shows in the taskbar, dock or alt-tab,
   lets clicks through outside its panels, and is blacked out in screen
@@ -69,6 +73,8 @@ wisp off            # stop listening, hide (notes are written), daemon stays up
 wisp ask            # Assist from the terminal; streams the answer and its timing
 wisp ask "text"     # ask a typed question
 wisp notes          # write meeting notes for the current session
+wisp lang en|hi     # language spoken in the call (hi downloads ~290 MB once)
+wisp answer auto|en|hi|hinglish   # language answers are written in
 wisp show | hide | listen [on|off] | status | stop | restart
 ```
 
@@ -138,7 +144,11 @@ Tests: `cd daemon && uv run pytest`. Benchmarks are in `daemon/bench/`.
 
 ## Limits
 
-- Speech recognition is English only.
+- Speech recognition covers English and Hindi (including Hindi-English
+  mixing). Hindi decodes per utterance, so its captions run about 1 s behind
+  speech instead of a fraction of a second; on unscripted speech from 15
+  speakers it measures 12% CER (`daemon/bench/hindi_eval.py`). It often drops
+  the halant in consonant clusters (अठठाई for अट्ठाई), which still reads clearly.
 - Echo cancellation measures 65–67 dB on a virtual room
   (`daemon/bench/aec_check.py`); real speakers through room air give less,
   typically 20–30 dB. Headphones avoid echo entirely.

@@ -37,6 +37,13 @@ notes_dir = ""        # default ~/Documents/wisp
 screenshot_scale = 0.6
 screenshot_quality = 70
 
+# Language spoken in the call: "en" (streaming English model) or "hi" (Hindi
+# and Hindi-English; `wisp lang hi` downloads its model the first time).
+language = "en"
+# How answers are written: "auto" follows the conversation, or "en", "hi"
+# (Devanagari) or "hinglish" (Hindi-English in Latin script).
+answer_language = "auto"
+
 # general, interview, meeting or lecture
 mode = "general"
 # Notes, a resume or an agenda to include with every request.
